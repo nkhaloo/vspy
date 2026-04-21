@@ -1,0 +1,19 @@
+[project]
+name = "vspy"
+version = "0.1.0"
+requires-python = ">=3.9"
+
+dependencies = [
+    "numpy",
+    "soundfile",
+    "praat-parselmouth",
+    "librosa",
+    "pandas"
+    ]
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"

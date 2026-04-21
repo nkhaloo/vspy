@@ -1,0 +1,118 @@
+File type = "ooTextFile"
+Object class = "TextGrid"
+
+xmin = 0 
+xmax = 1.205124716553288 
+tiers? <exists> 
+size = 4 
+item []: 
+    item [1]:
+        class = "IntervalTier" 
+        name = "vowel" 
+        xmin = 0 
+        xmax = 1.205124716553288 
+        intervals: size = 8 
+        intervals [1]:
+            xmin = 0 
+            xmax = 0.28786084582315785 
+            text = "" 
+        intervals [2]:
+            xmin = 0.28786084582315785 
+            xmax = 0.3813509343503224 
+            text = "ter" 
+        intervals [3]:
+            xmin = 0.3813509343503224 
+            xmax = 0.459994530388739 
+            text = "" 
+        intervals [4]:
+            xmin = 0.459994530388739 
+            xmax = 0.5657346307762164 
+            text = "k'c" 
+        intervals [5]:
+            xmin = 0.5657346307762164 
+            xmax = 0.5890612305269961 
+            text = "" 
+        intervals [6]:
+            xmin = 0.5890612305269961 
+            xmax = 0.6112219508996053 
+            text = "k'rs" 
+        intervals [7]:
+            xmin = 0.6112219508996053 
+            xmax = 0.7421947502818871 
+            text = "k'a#" 
+        intervals [8]:
+            xmin = 0.7421947502818871 
+            xmax = 1.205124716553288 
+            text = "" 
+    item [2]:
+        class = "IntervalTier" 
+        name = "word" 
+        xmin = 0 
+        xmax = 1.205124716553288 
+        intervals: size = 3 
+        intervals [1]:
+            xmin = 0 
+            xmax = 0.143583372831548 
+            text = "" 
+        intervals [2]:
+            xmin = 0.143583372831548 
+            xmax = 0.953423983616893 
+            text = "terk'a" 
+        intervals [3]:
+            xmin = 0.953423983616893 
+            xmax = 1.205124716553288 
+            text = "" 
+    item [3]:
+        class = "IntervalTier" 
+        name = "sound" 
+        xmin = 0 
+        xmax = 1.205124716553288 
+        intervals: size = 9 
+        intervals [1]:
+            xmin = 0 
+            xmax = 0.2395050538066154 
+            text = "" 
+        intervals [2]:
+            xmin = 0.2395050538066154 
+            xmax = 0.2554125643618719 
+            text = "b" 
+        intervals [3]:
+            xmin = 0.2554125643618719 
+            xmax = 0.28786084582315785 
+            text = "rh" 
+        intervals [4]:
+            xmin = 0.28786084582315785 
+            xmax = 0.3813509343503224 
+            text = "e" 
+        intervals [5]:
+            xmin = 0.3813509343503224 
+            xmax = 0.459994530388739 
+            text = "X" 
+        intervals [6]:
+            xmin = 0.459994530388739 
+            xmax = 0.5657346307762164 
+            text = "c" 
+        intervals [7]:
+            xmin = 0.5657346307762164 
+            xmax = 0.5890612305269961 
+            text = "b" 
+        intervals [8]:
+            xmin = 0.5890612305269961 
+            xmax = 0.6110671833090875 
+            text = "rs" 
+        intervals [9]:
+            xmin = 0.6110671833090875 
+            xmax = 1.205124716553288 
+            text = "" 
+    item [4]:
+        class = "TextTier" 
+        name = "stop" 
+        xmin = 0 
+        xmax = 1.205124716553288 
+        points: size = 2 
+        points [1]:
+            number = 0.34070623749727924 
+            mark = "1t_pre_v" 
+        points [2]:
+            number = 0.44143187727836447 
+            mark = "2k_pre_v" 

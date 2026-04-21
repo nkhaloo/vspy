@@ -1,0 +1,109 @@
+VoiceSauce → Python recreation (project brief + collaboration rules)
+
+What the user wants
+- Recreate core VoiceSauce feature extraction in Python, using the existing MATLAB `.m` files as the conceptual/code basis.
+- Provide a modern, user-friendly Python API that can be called like:
+  - df = vs(PATH_TO_WAV_FILES)
+- Primary output:
+  - Return a single combined DataFrame.
+  - Write one combined CSV to disk (CSV, not `.txt`).
+- Inputs:
+  - Must NOT require TextGrids or `.mat` files.
+  - May optionally accept TextGrids (if provided) for segment/label-aware analysis.
+- Development approach:
+  - Step-by-step, verify modules incrementally.
+
+Collaboration contract (important)
+- The assistant should guide the user through writing the code themselves.
+- Do not write code proactively.
+- Only provide code when the user explicitly asks for code.
+- Always explain the signal processing — the user's primary concern is understanding
+  what the DSP is doing, not just writing working code. Narrate the "why" behind
+  every algorithm, window, FFT, smoothing step, etc.
+- Prefer explaining:
+  - how to structure modules,
+  - what to implement next,
+  - how to validate against VoiceSauce outputs,
+  - how to debug discrepancies,
+  - what tests/fixtures to create.
+
+Design constraints / product shape
+- Minimal "single-call" API is the target.
+- Output is one combined CSV + the DataFrame returned.
+- Aim for VoiceSauce feature parity first; extra functionality only after parity is stable.
+- Avoid hard dependencies on GUI or MATLAB-style workflows.
+
+Frame grid (confirmed from VoiceSauce source — vs_Initialize.m)
+- Hop size: 1ms (vars.frameshift = 1)
+- Window length: 25ms
+- Timestamps: t_ms column, integer milliseconds, left-edge convention
+    e.g. frame at hop 483 → t_ms = 483
+- No seg_start/seg_end columns — t_ms is the only time column
+- Frameshift stored internally in ms; converted to seconds at extractor boundary
+
+Test data (test/)
+- 5 mono wav files, 44100Hz, 0.8–1.3s — Turkish phonetics data
+- 5 matching TextGrids with 4 tiers: vowel, word, sound, stop
+- No VoiceSauce reference outputs available
+- Validation strategy: use Praat GUI / parselmouth output directly as ground truth
+  for the Praat F0 module (same engine)
+
+MATLAB function survey (complete)
+- All spectral feature functions (GetH1H2, GetCPP, GetHNR, GetEnergy, etc.) are
+  pure-Python ports using numpy/scipy — straightforward.
+- Praat pitch + formants: wrap via parselmouth (Python Praat binding).
+- Snack pitch: substitute with a modern Python pitch tracker (e.g. pyin via librosa).
+- Snack formants: replace with LPC via scipy.signal.
+- STRAIGHT pitch (.p files): compiled MATLAB bytecode — dead end, cannot run outside
+  MATLAB. Deferred/substituted.
+- SHR pitch (shrp.m): complex ~300-line algorithm. Deferred.
+
+Roadmap
+
+Phase 0 — COMPLETE
+  - Scoping done: parity target = Praat F0 + Snack F0 substitute to start.
+  - MATLAB functions surveyed and categorised.
+  - Test data in place.
+  - Frame grid locked in.
+  - CSV schema decided: per-frame (one row per frame per file), center timestamps.
+
+Phase 1 — Project skeleton (CURRENT)
+  vs/ (package)
+    __init__.py        — exposes vs() entry point
+    api.py             — the vs(...) function
+    io.py              — wav loading, resampling, channel handling
+    features/
+      __init__.py
+      pitch.py         — Praat F0 + Snack F0 substitute
+      registry.py      — feature registry (name → extractor function)
+    align/
+      __init__.py
+      textgrid.py      — TextGrid parser (optional but test data has them)
+
+Phase 2 — F0 feature family
+  - Praat F0 module: call via parselmouth, output time series (time, f0_hz, voiced).
+  - Snack F0 substitute: pyin or similar, same output schema.
+  - func_parseF0 equivalent: select which F0 vector to use downstream.
+
+Phase 3 — Aggregation + one-call API
+  - Feature registry: each extractor returns DataFrame with standardised columns.
+  - vs(...) function: accepts path/dir/list, runs modules, merges, writes CSV.
+
+Phase 4 — Optional TextGrid support
+  - Map intervals → time masks.
+  - Segment-wise summaries (optional columns with tier/label).
+
+Phase 5 — Stop condition
+  - Core modules created (at least Praat F0 + Snack F0 substitute).
+  - vs(...) runs end-to-end on a folder of wavs.
+  - One combined CSV written.
+  - DataFrame returned matches CSV content.
+
+How to work session-to-session
+- Each session should end with:
+  - what module was implemented,
+  - how it was validated,
+  - what is the next smallest testable step.
+- If parity differs from MATLAB VoiceSauce:
+  - isolate the discrepancy at the frame level first,
+  - confirm resampling, time grid, window/hop, and unit conventions.
