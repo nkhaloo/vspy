@@ -10,8 +10,9 @@ def get_2k5k(y, Fs, F0, n_periods=3):
     F2K = np.full(n_frames, np.nan)
     H5K = np.full(n_frames, np.nan)
 
-    # use DFT to find peak at +/- 5% of the given peak 
-    # returns the amplitude of that peak  
+    # use DFT to find peak at +/- 50% of F0 at the given target
+    # returns the amplitude of that peak and its frequency
+    # intuition: this function takes a target frequency (2k or 5k) and says 'If I look at a specified interval around this target, what is the amplitude of the harmonic peak?'
     def dft_amplitude(segment, freq):
         n = np.arange(len(segment))
         v = np.exp(-1j * 2 * np.pi * freq * n / Fs)
@@ -51,7 +52,7 @@ def get_2k5k(y, Fs, F0, n_periods=3):
 
         # targets = 2000 and 5000
         # used in DFT peak finder 
-        H2K[k], F2K[k] = find_peak(segment, 2000, f0)
+        H2K[k], F2K[k] = find_peak(segment, 2000, f0) # include the frequency of the peak at 2k
         H5K[k], _      = find_peak(segment, 5000, f0)
 
     return H2K, F2K, H5K

@@ -1,5 +1,5 @@
 # generate functions: Hawks and Miller (generates formant bandwidths) and iseli correction
-# compute spectral tilts 
+# function to compute spectral tilts 
 
 import numpy as np
 
@@ -27,24 +27,31 @@ def hawks_miller_bw(Fn, F0):
     return bw
 
 
-# iseli correction: f = harmonic, Fx = formant, Bx = bandwidth, Fs = sampling rate 
+# iseli correction: f = harmonic frequency, Fx = formant, Bx = bandwidth, Fs = sampling rate 
 def iseli_correction(f, Fx, Bx, Fs):
-    # convert bandwidth into a number between 0 and 1
-    # narrow formant gives r closer to 1 
+    # convert bandwidth into a number between 0 and 1 that captures how strong the resonance is 
+    # close to 1 = strong sharp peak (thinner bandwidth)
+    # think of this as a pole
     r = np.exp(-np.pi * Bx / Fs)
 
-    # convert from Hz into radians 
-    omega_x = 2 * np.pi * Fx / Fs
-    omega   = 2 * np.pi * f  / Fs
+    # convert from Hz into radians (angles)
+    # how far around the circle does one sample step? 
+    # frequency at exactly the Nyquist theorum corresponds to pi radians (or 180 degrees)
+    omega_x = 2 * np.pi * Fx / Fs # convert formant to radians 
+    omega   = 2 * np.pi * f  / Fs # convert harmonic frequency to radians
 
-    # a and b measure how much the formant amplifies the frequency (f)
+    # measure distance between formant and harmonic frequencies on a circle (not a line)
+    # theres two equations (a and b) to measure each direction around a circle
+    # a and b measure how much a formant amplifies the signal at the harmonic's frequency 
     a    = r**2 + 1 - 2*r*np.cos(omega_x + omega)
     b    = r**2 + 1 - 2*r*np.cos(omega_x - omega)
-    # same thing but at 0 hz 
+    # baseline where omega = 0 
+    # this basically shows a baseline effect of the formant frequency
     num  = r**2 + 1 - 2*r*np.cos(omega_x)
 
     # measures how much dB the nearest formant adds at this given frequency
-    # -10·log10 converts the squared amplification into dB
+    # just subracting a from b, the result would be "how much does this filter amplify at f?"
+    # after normalization, (subtracting 20 * num), the result is 'how much ectra doers this filter amplify f, relative to its onw baseline?'
     corr = -10*(np.log10(a) + np.log10(b)) + 20*np.log10(num)
     return corr
 
