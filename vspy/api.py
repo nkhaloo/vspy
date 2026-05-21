@@ -42,31 +42,33 @@ def vspy(source, features=None, frameshift_ms=1, output_csv="output.csv",
             else:
                 #single-array extractor (e.g. f0): add as a named column
                 df[name] = result
-        # pull F0 and formant values out of the DF as numpy arrays
-        # allows them to be passed to the extractors 
+        # run harmonic extractors only if the required F0 and formant columns are present
         f0_col  = f"f0_{f0_source}"
         f1_col  = f"F1_{formant_source}"
         f2_col  = f"F2_{formant_source}"
         f3_col  = f"F3_{formant_source}"
 
-        F0 = df[f0_col].to_numpy()
-        F1 = df[f1_col].to_numpy()
-        F2 = df[f2_col].to_numpy()
-        F3 = df[f3_col].to_numpy()
+        has_f0       = f0_col in df.columns
+        has_formants = all(c in df.columns for c in [f1_col, f2_col, f3_col])
 
-        # run the new extractors on the arrays and store them as new columns
-        H1, H2, H4 = get_harmonics(y, fs, F0)
-        A1, A2, A3 = get_formant_amplitudes(y, fs, F0, F1, F2, F3)
-        H2K, F2K, H5K = get_2k5k(y, fs, F0)
+        if has_f0 and has_formants:
+            F0 = df[f0_col].to_numpy()
+            F1 = df[f1_col].to_numpy()
+            F2 = df[f2_col].to_numpy()
+            F3 = df[f3_col].to_numpy()
 
-        df['H1'], df['H2'], df['H4'] = H1, H2, H4
-        df['A1'], df['A2'], df['A3'] = A1, A2, A3
-        df['H2K'], df['F2K'], df['H5K'] = H2K, F2K, H5K
+            H1, H2, H4 = get_harmonics(y, fs, F0)
+            A1, A2, A3 = get_formant_amplitudes(y, fs, F0, F1, F2, F3)
+            H2K, F2K, H5K = get_2k5k(y, fs, F0)
 
-        tilts = compute_tilts(H1, H2, H4, A1, A2, A3, H2K, F2K, H5K,
-                              F0, F1, F2, F3, fs)
-        for col, arr in tilts.items():
-            df[col] = arr
+            df['H1'], df['H2'], df['H4'] = H1, H2, H4
+            df['A1'], df['A2'], df['A3'] = A1, A2, A3
+            df['H2K'], df['F2K'], df['H5K'] = H2K, F2K, H5K
+
+            tilts = compute_tilts(H1, H2, H4, A1, A2, A3, H2K, F2K, H5K,
+                                  F0, F1, F2, F3, fs)
+            for col, arr in tilts.items():
+                df[col] = arr
 
         df["filename"] = path.name
 

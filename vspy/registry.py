@@ -3,7 +3,6 @@
 from vspy.features.get_formants_snack import get_formants_snack
 from vspy.features.get_formants_praat import get_formants_praat
 from vspy.features.get_pitch_praat import get_pitch_praat
-from vspy.features.get_pitch_pyin import get_pitch_pyin
 from vspy.features.get_pitch_snack import get_pitch_snack
 
 
@@ -11,7 +10,6 @@ from vspy.features.get_pitch_snack import get_pitch_snack
 # uses string created by feature_key in api.py
 REGISTRY = {
     "f0_praat": get_pitch_praat,
-    #"f0_pyin": get_pitch_pyin,
     "formants_praat": get_formants_praat,
     "f0_snack": get_pitch_snack, 
     "formants_snack": get_formants_snack
