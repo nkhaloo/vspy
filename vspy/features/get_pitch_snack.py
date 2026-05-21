@@ -2,6 +2,7 @@ import numpy as np
 from scipy.signal import firwin, lfilter
 from vspy.io import read_wav
 
+# Low pass -> downsample
 def _preprocess(y, fs, max_f0=500):
     dec = int(fs / (4 * max_f0))     # floor, matching Snack's (int) cast
     if dec <= 1:
@@ -9,7 +10,7 @@ def _preprocess(y, fs, max_f0=500):
 
     Fds = fs / dec
 
-    # FIR lowpass: Hanning-windowed sinc, 5ms filter length
+    # Low pass filter using 5ms hanning window
     n_taps = int(fs * 0.005) | 1
     # low pass filter
     b      = firwin(n_taps, Fds / 2, fs=fs, window='hann')
@@ -18,7 +19,7 @@ def _preprocess(y, fs, max_f0=500):
 
     return y_pp, Fds, dec
 
-
+# returns peaks after threshold filtering + peak interpolation
 def _pick_peaks(nccf, k_min, cand_thresh):
     max_val = nccf.max()
     if max_val <= 0:
@@ -38,16 +39,22 @@ def _pick_peaks(nccf, k_min, cand_thresh):
             candidates.append((k_min + i + xp, yp))
     return candidates
 
+# normalize values at reference at lags by  mean of all amplitudes of a given window  
+def _subtract_mean(frame, ref_size):
+    mean = np.mean(frame[:ref_size])
+    return frame - mean
 
+
+# 2 pass NCCF call
 def _get_candidates(y, y_pp, fs, Fds, dec, min_f0=40, max_f0=500, frame_step=0.01, wind_dur=0.0075, n_cands=20):
-    # frame parameters at original sample rate
+    # frame parameters at original sample rate (used in second pass)
     z     = round(frame_step * fs)   # frame step in samples
     n     = round(wind_dur * fs)     # window size in samples
     k_min = round(fs / max_f0)       # minimum lag
     k_max = round(fs / min_f0)       # maximum lag
     K     = k_max - k_min + 1        # number of lags
 
-    # frame parameters at downsampled rate (coarse NCCF pass)
+    # frame parameters at downsampled rate (first NCCF pass)
     z_ds     = z // dec
     n_ds     = 1 + (n // dec)
     k_min_ds = max(1, k_min // dec)
@@ -61,8 +68,9 @@ def _get_candidates(y, y_pp, fs, Fds, dec, min_f0=40, max_f0=500, frame_step=0.0
     lag_wt = 0.3 / K   # lag_weight / nlags, matching Snack's lag_wt = par->lag_weight/nlags
 
     for i in range(n_frames):
-        p_ds = (i * z) // dec    # matching Snack's decind = (ind * step)/dec
-        ref  = y_pp[p_ds : p_ds + n_ds]
+        p_ds  = (i * z) // dec    # matching Snack's decind = (ind * step)/dec
+        frame_ds = _subtract_mean(y_pp[p_ds : p_ds + n_ds + k_max_ds], n_ds)
+        ref   = frame_ds[:n_ds]
         E_ref = np.dot(ref, ref)
 
         # coarse (first pass) NCCF on y_pp over all lags k_min_ds..k_max_ds
@@ -70,7 +78,7 @@ def _get_candidates(y, y_pp, fs, Fds, dec, min_f0=40, max_f0=500, frame_step=0.0
         if E_ref > 0:
             for ki in range(K_ds):
                 k      = k_min_ds + ki
-                lagged = y_pp[p_ds + k : p_ds + k + n_ds]
+                lagged = frame_ds[k : k + n_ds]
                 E_lag  = np.dot(lagged, lagged)
                 if E_lag > 0:
                     nccf_ds[ki] = np.dot(ref, lagged) / np.sqrt(E_ref * E_lag)
@@ -80,16 +88,15 @@ def _get_candidates(y, y_pp, fs, Fds, dec, min_f0=40, max_f0=500, frame_step=0.0
             coarse_cands.sort(key=lambda x: -x[1])
             coarse_cands = coarse_cands[:n_cands - 1]
 
-        # map to full sample rate and apply lag-dependent weight
-        # matching Snack: *lp = (*lp * dec) + (int)(0.5+(xp*dec))
-        #                 *pe = yp*(1.0f - (lag_wt * *lp))
+        # map to full sample rate and apply lag-dependent weight (larger lags = bad)
         coarse_cands = [(round(lag_ds * dec), yp * (1.0 - lag_wt * round(lag_ds * dec)))
                         for lag_ds, yp in coarse_cands]
         fine_lags = [lag for lag, _ in coarse_cands]
 
-        # fine NCCF on y in a 7-point vicinity around each candidate lag
-        p = i * z
-        ref_fine   = y[p : p + n]
+        # fine NCCF on y (non-pre-processed sample) in a 7-point vicinity around each candidate lag
+        p        = i * z
+        frame    = _subtract_mean(y[p : p + n + k_max], n)
+        ref_fine = frame[:n]
         E_ref_fine = np.dot(ref_fine, ref_fine)
 
         fine_cands = []
@@ -101,9 +108,7 @@ def _get_candidates(y, y_pp, fs, Fds, dec, min_f0=40, max_f0=500, frame_step=0.0
 
                 nccf_fine = np.zeros(n_fine)
                 for ki, k in enumerate(range(lag_lo, lag_hi + 1)):
-                    lagged = y[p + k : p + k + n]
-                    if len(lagged) < n:
-                        continue
+                    lagged = frame[k : k + n]
                     E_lag = np.dot(lagged, lagged)
                     if E_lag > 0:
                         nccf_fine[ki] = np.dot(ref_fine, lagged) / np.sqrt(E_ref_fine * E_lag)
