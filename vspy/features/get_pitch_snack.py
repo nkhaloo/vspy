@@ -4,13 +4,14 @@ from vspy.io import read_wav
 
 # Low pass -> downsample
 def _preprocess(y, fs, max_f0=500):
-    dec = int(fs / (4 * max_f0))     # floor, matching Snack's (int) cast
+    dec = int(fs / (4 * max_f0))     # how much to downsample
     if dec <= 1:
         return y, fs, 1
 
     Fds = fs / dec
 
     # Low pass filter using 5ms hanning window
+    # number of coefficients in the FIR filter (how long the filter is)
     n_taps = int(fs * 0.005) | 1
     # low pass filter
     b      = firwin(n_taps, Fds / 2, fs=fs, window='hann')
@@ -19,7 +20,7 @@ def _preprocess(y, fs, max_f0=500):
 
     return y_pp, Fds, dec
 
-# returns peaks after threshold filtering + peak interpolation
+# returns peaks after threshold filtering + parabolic interpolation
 def _pick_peaks(nccf, k_min, cand_thresh):
     max_val = nccf.max()
     if max_val <= 0:
@@ -30,18 +31,32 @@ def _pick_peaks(nccf, k_min, cand_thresh):
         if nccf[i] > clip and nccf[i] >= nccf[i-1] and nccf[i] >= nccf[i+1]:
             # parabolic interpolation to refine peak location and value
             y0, y1, y2 = nccf[i-1], nccf[i], nccf[i+1]
+            # curvature around the three points {y0, y1, y2}
             a = (y2 - y1) + 0.5 * (y0 - y2)
+            # don't calculate interpolation if the parabola is flat
             if abs(a) > 1e-6:
+                # where the peak is (lag) 
+                    # - b / 2a
+                    # 2b = y2 - y0
+                    # b = (y2-y0) / 2
+                    # xp = -b/2a = (y0-y2) / 2 / 2a 
                 xp = (y0 - y2) / (4.0 * a)
+                # how strong the peak is (nccf value)
                 yp = y1 - a * xp * xp
+            # if curvature (a) = 0, then the offset stays at the integer peak 
+            # return y1 for the NCCF value
             else:
                 xp, yp = 0.0, y1
+                # return lag and lag value
             candidates.append((k_min + i + xp, yp))
     return candidates
 
-# normalize values at reference at lags by  mean of all amplitudes of a given window  
+# remove direct current offset by subtracting the mean of the reference window from the entire frame
+# prevents bias that inflates correlation at each lag
 def _subtract_mean(frame, ref_size):
     mean = np.mean(frame[:ref_size])
+    # frame = y_pp[p_ds : p_ds + n_ds + k_max_ds]
+    # slice of waveform that covers the reference window and lags you want to test
     return frame - mean
 
 
@@ -50,8 +65,8 @@ def _get_candidates(y, y_pp, fs, Fds, dec, min_f0=40, max_f0=500, frame_step=0.0
     # frame parameters at original sample rate (used in second pass)
     z     = round(frame_step * fs)   # frame step in samples
     n     = round(wind_dur * fs)     # window size in samples
-    k_min = round(fs / max_f0)       # minimum lag
-    k_max = round(fs / min_f0)       # maximum lag
+    k_min = round(fs / max_f0)       # shortest lag you'll test 
+    k_max = round(fs / min_f0)       # longest lag you'll test 
     K     = k_max - k_min + 1        # number of lags
 
     # frame parameters at downsampled rate (first NCCF pass)
@@ -61,17 +76,21 @@ def _get_candidates(y, y_pp, fs, Fds, dec, min_f0=40, max_f0=500, frame_step=0.0
     k_max_ds = k_max // dec
     K_ds     = 1 + (K // dec)
 
+    # number of frames that fit in downsampled signal
     n_frames = (len(y_pp) - n_ds - k_max_ds) // z_ds
 
     all_candidates = []
     all_max_vals   = []
 
-    lag_wt = 0.3 / K   # lag_weight / nlags, matching Snack's lag_wt = par->lag_weight/nlags
+    # penalty that discourages long lags 
+    lag_wt = 0.3 / K   # 
 
     for i in range(n_frames):
-        p_ds  = (i * z) // dec    # matching Snack's decind = (ind * step)/dec
+        # starting position for frame i in ds signal
+        p_ds  = (i * z) // dec    
         frame_ds = _subtract_mean(y_pp[p_ds : p_ds + n_ds + k_max_ds], n_ds)
         ref   = frame_ds[:n_ds]
+        # energy at reference window
         E_ref = np.dot(ref, ref)
 
         # coarse (first pass) NCCF on y_pp over all lags k_min_ds..k_max_ds
@@ -80,12 +99,15 @@ def _get_candidates(y, y_pp, fs, Fds, dec, min_f0=40, max_f0=500, frame_step=0.0
             for ki in range(K_ds):
                 k      = k_min_ds + ki
                 lagged = frame_ds[k : k + n_ds]
+                # energy of the lagged window 
                 E_lag  = np.dot(lagged, lagged)
                 if E_lag > 0:
                     nccf_ds[ki] = np.dot(ref, lagged) / np.sqrt(E_ref * E_lag)
 
         coarse_cands = _pick_peaks(nccf_ds, k_min_ds, cand_thresh=0.3)
         if len(coarse_cands) >= n_cands:
+            # slicing to keep 1 fewer than n_cands
+            # allows to save 1 spot for the voiceless hypothesis
             coarse_cands.sort(key=lambda x: -x[1])
             coarse_cands = coarse_cands[:n_cands - 1]
 
@@ -104,17 +126,18 @@ def _get_candidates(y, y_pp, fs, Fds, dec, min_f0=40, max_f0=500, frame_step=0.0
         max_val    = 0.0
         if E_ref_fine > 0:
             for lag_full in fine_lags:
+                # instead of searching over every lag, only search a 7-point window around each coarse candidate lag
                 lag_lo = max(k_min, lag_full - 3)
                 lag_hi = min(k_max, lag_full + 3)
                 n_fine = lag_hi - lag_lo + 1
-
+                # compute NCCF at full sample rate for those 7 lags around each coarse candidate
                 nccf_fine = np.zeros(n_fine)
                 for ki, k in enumerate(range(lag_lo, lag_hi + 1)):
                     lagged = frame[k : k + n]
                     E_lag = np.dot(lagged, lagged)
                     if E_lag > 0:
                         nccf_fine[ki] = np.dot(ref_fine, lagged) / np.sqrt(E_ref_fine * E_lag)
-
+        
                 max_val = max(max_val, nccf_fine.max())
                 # store (integer_lag, peak, y0, y1, y2) — triplet used for backtracking interpolation
                 if nccf_fine.max() > 0:
@@ -134,7 +157,7 @@ def _get_candidates(y, y_pp, fs, Fds, dec, min_f0=40, max_f0=500, frame_step=0.0
     return all_candidates, all_max_vals, n_frames, z, k_min, k_max
 
 
-# extracts a fixed window from y 
+# extracts a fixed window from y (zero padding if window is out of bounds)
 def _safe_extract(y, start, size):
     out = np.zeros(size)
     src_start = max(0, start)
@@ -148,12 +171,12 @@ def _safe_extract(y, start, size):
 # computes how much two frames are changing in temrs of energy and spectral similairty
 def _get_stationarity(y, fs, n_frames, z):
     stat_wsize = int(0.030 * fs)          # 30ms window
-    stat_aint  = int(0.020 * fs)          # 20ms interval
+    stat_aint  = int(0.020 * fs)          # 20ms interval (gap between current and previous frame centers)
     ind        = (stat_aint - stat_wsize) // 2   # offset from frame start to window start
 
     stats      = []
     rms_ratios = []
-
+# extract two frames and compute similarity
     for i in range(n_frames):
         curr_start = i * z + ind
         prev_start = curr_start - stat_aint
@@ -171,7 +194,7 @@ def _get_stationarity(y, fs, n_frames, z):
 def _local_costs(fine_cands, max_val, k_max, lag_weight=0.3, voice_bias=0.0):
     lag_wt = lag_weight / k_max
     costs  = [1.0 - peak * (1.0 - lag * lag_wt) for lag, peak, *_ in fine_cands]
-    costs.append(voice_bias + max_val)   # unvoiced hypothesis, lag = -1 
+    costs.append(voice_bias + max_val)   # unvoiced hypothesis (for every frame, an unvoiced candiate with lag = -1 is added)
     return costs
 
 
@@ -235,7 +258,7 @@ def _spectral_similarity(curr_win, prev_win, fs):
 def _transition_cost(lag1, lag2, stat, rms_ratio,
                      trans_cost=0.005, trans_amp=0.5, trans_spec=0.5,
                      freq_weight=0.02, double_cost=0.35, frame_step=0.01):
-    # lag = -1 is the sentinel for unvoiced, not an actual lag value
+    # lag = -1 for unvoiced candidate 
     freq_wt = freq_weight / frame_step
 
     if lag1 == -1 and lag2 == -1:   # unvoiced -> unvoiced
@@ -244,6 +267,7 @@ def _transition_cost(lag1, lag2, stat, rms_ratio,
     if lag1 > 0 and lag2 > 0:       # voiced -> voiced
         ratio = np.log(lag2 / lag1)
         e_jk  = abs(ratio)
+        # octave jumps get a reduced transition cost
         cost  = min(e_jk, double_cost + abs(ratio + np.log(2)))
         cost  = min(cost,  double_cost + abs(ratio - np.log(2)))
         return cost * freq_wt
@@ -255,7 +279,7 @@ def _transition_cost(lag1, lag2, stat, rms_ratio,
         return trans_cost + trans_spec * stat + trans_amp * rms_ratio
 
 
-# recursion step
+# recursion step: finds the best path through the frames of an audio clip in terms of minimizing cost
 def _dp_forward(all_candidates, all_max_vals, stats, rms_ratios, k_max,
                 lag_weight=0.3, voice_bias=0.0, trans_cost=0.005,
                 trans_amp=0.5, trans_spec=0.5, freq_weight=0.02,
@@ -276,7 +300,7 @@ def _dp_forward(all_candidates, all_max_vals, stats, rms_ratios, k_max,
         prev_lags = [c[0] for c in all_candidates[i - 1]] + [-1]
         prev_cum  = cum_costs[-1]
 
-        # for each current state k, find minimum cost path from any previous state j
+        # for each current state k, try every previous state j and find the one with the lowest cumulative cost plus transition cost
         frame_costs = []
         frame_bptrs = []
         for k, lag2 in enumerate(lags):
@@ -294,7 +318,7 @@ def _dp_forward(all_candidates, all_max_vals, stats, rms_ratios, k_max,
 
     return cum_costs, backptrs
 
-
+# for each state in the best path, this function does parabolic interpolation to find the true peak, then calculates F0 
 def _dp_backtrack(all_candidates, cum_costs, backptrs, fs):
     n_frames = len(cum_costs)
     k        = int(np.argmin(cum_costs[-1]))
@@ -320,28 +344,27 @@ def get_pitch_snack(wavfile, frameshift_ms=1, datalen=None, min_f0=40, max_f0=50
                     wind_dur=0.025, n_cands=20, lag_weight=0.3, voice_bias=0.0,
                     trans_cost=0.005, trans_amp=0.5, trans_spec=0.5,
                     freq_weight=0.02, double_cost=0.35):
+    # load audio
     y, fs = read_wav(wavfile)
-
+    # convert frame shift to seconds
     frame_step = frameshift_ms / 1000.0
-
+    # lowpass + downsample
     y_pp, Fds, dec = _preprocess(y, fs, max_f0)
-    print(f"[snack] fs={fs}, dec={dec}, Fds={Fds}, len(y)={len(y)}, len(y_pp)={len(y_pp)}")
-
+    # 2 pass NCCF 
     all_candidates, all_max_vals, n_frames, z, _, k_max = _get_candidates(
         y, y_pp, fs, Fds, dec, min_f0, max_f0, frame_step, wind_dur, n_cands)
     n_voiced = sum(1 for c in all_candidates if len(c) > 0)
-    print(f"[snack] n_frames={n_frames}, frames_with_candidates={n_voiced}")
 
+    # compute spectral similarity and energy ratios between adjacent frames 
     stats, rms_ratios = _get_stationarity(y, fs, n_frames, z)
-
+    # compute costs and find best path 
     cum_costs, backptrs = _dp_forward(
         all_candidates, all_max_vals, stats, rms_ratios, k_max,
         lag_weight, voice_bias, trans_cost, trans_amp, trans_spec,
         freq_weight, double_cost, frame_step)
-
+    # use backtracking function to find best peaks and calculate F0 
     raw_f0 = _dp_backtrack(all_candidates, cum_costs, backptrs, fs)
-    print(f"[snack] voiced frames in raw_f0: {(raw_f0 > 0).sum()} / {len(raw_f0)}")
-
+# create fixed-length output array
     if datalen is None:
         datalen = n_frames
     f0 = np.full(datalen, np.nan)

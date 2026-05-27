@@ -8,7 +8,8 @@ dependencies = [
     "soundfile",
     "praat-parselmouth",
     "librosa",
-    "pandas"
+    "pandas",
+    "pydub"
     ]
 
 [tool.setuptools.packages.find]

@@ -1,15 +1,21 @@
 # wav loading
 
-import soundfile as sf 
+import io
+import soundfile as sf
 from pathlib import Path
 
-#define a function that returns an array of the wav file and its sampling rate 
-#chanel returns first channel if sound is stereo
+
 def read_wav(wavfile, channel=0):
-    # mirrors MATLAB audioread(): y = audio sample array 
-    #sf.read() returns y as a 2d array with shape (n_samples, n_channels) and fs (sampling rate)
-    y, fs = sf.read(wavfile, dtype="float64", always_2d=True)
-    #return a 1d array of shape (n_samples), contaning waveform amplitude values for the selected channel + fs
+    wavfile = Path(wavfile)
+    if wavfile.suffix.lower() == ".mp3":
+        from pydub import AudioSegment
+        audio = AudioSegment.from_mp3(wavfile)
+        buf = io.BytesIO()
+        audio.export(buf, format="wav")
+        buf.seek(0)
+        y, fs = sf.read(buf, dtype="float64", always_2d=True)
+    else:
+        y, fs = sf.read(wavfile, dtype="float64", always_2d=True)
     return y[:, channel], fs
 #y is used later as what the functions extract features from 
 #y and fs are also used to cacluate datalen in api.py (datalen = number of frames in the audio file)
@@ -20,5 +26,7 @@ def resolve_paths(source):
         return [Path(p) for p in source]
     source = Path(source)
     if source.is_dir():
-        return sorted(source.glob("*.wav"))
+        wavs = sorted(source.glob("*.wav"))
+        mp3s = sorted(source.glob("*.mp3"))
+        return wavs + mp3s
     return [source]

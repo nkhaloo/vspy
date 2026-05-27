@@ -1,5 +1,5 @@
 # registry for feature names and extraction functions 
-# used by api call to map features to their functions and cal them
+# used by api call to map features to their functions and call them
 from vspy.features.get_formants_snack import get_formants_snack
 from vspy.features.get_formants_praat import get_formants_praat
 from vspy.features.get_pitch_praat import get_pitch_praat
