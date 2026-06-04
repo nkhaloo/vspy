@@ -44,25 +44,26 @@ int w_verbose = 0;
 /* Here are the major fudge factors for tweaking the formant tracker. */
 #define MAXCAN	300  /* maximum number of candidate mappings allowed */
 static double MISSING = 1, /* equivalent delta-Hz cost for missing formant */
-	NOBAND = 1000, /* equivalent bandwidth cost of a missing formant */
-	DF_FACT =  20.0, /* cost for proportional frequency changes */
+	NOBAND = 1000, /* equivalent bandwidth cost of a missing formant */ /*NK: 1 formant per 1000 hz generally. Penalizes a missing formant in terms of bandwidth*/
+	DF_FACT =  20.0, /* cost for proportional frequency changes */ /*NK: cost if you jump in hz suddenly. Keep formant straight*/
 	/* with good "stationarity" function:*/
   /*        DF_FACT =  80.0, *//*  cost for proportional frequency changes */
-	DFN_FACT = 0.3, /* cost for proportional dev. from nominal freqs. */
-	BAND_FACT = .002, /* cost per Hz of bandwidth in the poles */
+	DFN_FACT = 0.3, /* cost for proportional dev. from nominal freqs. */ /*NK: cost associated with having formant thats deviated from defined values in 57*/
+	BAND_FACT = .002, /* cost per Hz of bandwidth in the poles */ /*NK: how much bandwidth do you want*/
 /*	F_BIAS	  = 0.0004,   bias toward selecting low-freq. poles */
 	F_BIAS	  = 0.000, /*  bias toward selecting low-freq. poles */
 	F_MERGE = 2000.0; /* cost of mapping f1 and f2 to same frequency */
 static double	*fre,
-		fnom[]  = {  500, 1500, 2500, 3500, 4500, 5500, 6500},/*  "nominal" freqs.*/
+		fnom[]  = {  500, 1500, 2500, 3500, 4500, 5500, 6500},/*  "nominal" freqs.*/ /*NK: if there is no formant add nominal value and add bandwidth cost to formant*/
 		fmins[] = {   50,  400, 1000, 2000, 2000, 3000, 3000}, /* frequency bounds */
 		fmaxs[] = { 1500, 3500, 4500, 5000, 6000, 6000, 8000}; /* for 1st 5 formants */
+
 
 static int	maxp,	/* number of poles to consider */
 		maxf,	/* number of formants to find */
 		ncan,  domerge = TRUE;
 
-static short **pc;
+static short **pc; /*NK: pc stores LPC coefs for each analysis frame*/
 
 static int canbe(pnumb, fnumb) /* can this pole be this freq.? */
 int	pnumb, fnumb;
@@ -84,7 +85,7 @@ static void candy(cand,pnumb,fnumb)
     if(canbe(pnumb,fnumb)){
       pc[cand][fnumb] = pnumb;
       if(domerge&&(fnumb==0)&&(canbe(pnumb,fnumb+1))){ /* allow for f1,f2 merger */
-	ncan++;
+	ncan++; /*NK: ncand = number of candidates + 1*/
 	pc[ncan][0] = pc[cand][0];
 	candy(ncan,pnumb,fnumb+1); /* same pole, next formant */
       }
@@ -181,7 +182,7 @@ Sound *dpform(ps, nform, nom_f1)
     FBIAS = F_BIAS /(.01 * ps->samprate);
     /* Setup working values of the cost weights. */
     dffact = (DF_FACT * .01) * ps->samprate; /* keep dffact scaled to frame rate */
-    bfact = BAND_FACT /(.01 * ps->samprate);
+    bfact = BAND_FACT /(.01 * ps->samprate); /*NK: scaling cost to number of frames*/
     ffact = DFN_FACT /(.01 * ps->samprate);
     merge_cost = F_MERGE;
     if(merge_cost > 1000.0) domerge = FALSE;
@@ -223,12 +224,12 @@ Sound *dpform(ps, nform, nom_f1)
 
 	ncan = 0;		/* initialize candidate mapping count to 0 */
 
-	/* moderate the cost of frequency jumps by the relative amplitude */
+	/* moderate the cost of frequency jumps by the relative amplitude */ /*NK: making it less expensive to jump to a higher frequency if you are louder*/
 	rmsdffact = pole[i]->rms;
 	rmsdffact = rmsdffact/rmsmax;
 	rmsdffact = rmsdffact * dffact;
 
-	/* Get all likely mappings of the poles onto formants for this frame. */
+	/* Get all likely mappings of the poles onto formants for this frame. */ 
 	if(pole[i]->npoles){	/* if there ARE pole frequencies available... */
 	  get_fcand(pole[i]->npoles,pole[i]->freq,pole[i]->band,nform,pcan);
 
@@ -269,14 +270,14 @@ Sound *dpform(ps, nform, nom_f1)
 	      /* scale delta-frequency cost and add in prev. cum. cost */
 	      conerr = (rmsdffact * pferr) + fl[i-1]->cumerr[k]; 
 	      if(conerr < minerr){
-		minerr = conerr;
+		minerr = conerr; /*cumulative cost per candiates*/
 		mincan = k;
 	      }
 	    }			/* end for each PREVIOUS mapping... */
 	  }	else {		/* (i.e. if this is the first frame... ) */
 	    minerr = 0;
 	  }
-
+    /*Additional costs*/
 	  fl[i]->prept[j] = mincan; /* point to best previous mapping */
 	  /* (Note that mincan=-1 if there were no candidates in prev. fr.) */
 	  /* Compute the local costs for this current mapping. */
@@ -289,7 +290,7 @@ Sound *dpform(ps, nform, nom_f1)
 			  (ftemp == pole[i]->freq[fl[i]->cand[j][1]]))?
 			  merge_cost: 0.0;
 	      }
-	      berr += pole[i]->band[ic];
+	      berr += pole[i]->band[ic]; /*NK: calculate bandwidth cost*/
 	      ferr += (fabs(pole[i]->freq[ic]-fnom[k])/fnom[k]);
 	      fbias += pole[i]->freq[ic];
 	    } else {		/* if there was no freq. for this formant */
@@ -360,8 +361,8 @@ Sound *dpform(ps, nform, nom_f1)
 		fr[j][i] = fr[j][i+1]; /* replicate backwards */
 		ba[j][i] = ba[j][i+1];
 	      } else {
-		fr[j][i] = fnom[j]; /* or insert neutral values */
-		ba[j][i] = NOBAND;
+		fr[j][i] = fnom[j]; /* or insert neutral values */ /*If not formant add bandwidth cost and use nominal value*/
+		ba[j][i] = NOBAND; /*NK: */
 	      }
 	      if(debug & DEB_LPC_PARS){
 		printf("%6.0f",fr[j][i]);
