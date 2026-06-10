@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.signal import firwin, lfilter
+from scipy.signal import lfilter
 from vspy.io import read_wav
 
 # Low pass -> downsample
@@ -10,12 +10,21 @@ def _preprocess(y, fs, max_f0=500):
 
     Fds = fs / dec
 
-    # Low pass filter using 5ms hanning window
-    # number of coefficients in the FIR filter (how long the filter is)
+    # Replicate Snack's lc_lin_fir: sinc * Hanning with half-sample offset.
+    # Snack uses beta=0.5/dec as the normalised cutoff and the same 5ms window.
     n_taps = int(fs * 0.005) | 1
-    # low pass filter
-    b      = firwin(n_taps, Fds / 2, fs=fs, window='hann')
-    # downsampled on the low pass filter
+    n_half = (n_taps + 1) // 2
+    fc     = 0.5 / dec                          # normalised cutoff (0..0.5)
+    i_arr  = np.arange(1, n_half)
+    coef   = np.empty(n_half)
+    coef[0] = 2.0 * fc
+    coef[1:] = np.sin(i_arr * np.pi * 2.0 * fc) / (np.pi * i_arr)
+    # Snack Hanning: 0.5 - 0.5*cos(2π*(i+0.5)/n_taps)
+    fn = 2.0 * np.pi / n_taps
+    win_half = 0.5 - 0.5 * np.cos(fn * (np.arange(n_half) + 0.5))
+    coef    *= win_half[::-1]
+    b        = np.concatenate([coef[::-1], coef[1:]])   # symmetric, length n_taps
+
     y_pp   = lfilter(b, 1.0, y)[::dec]
 
     return y_pp, Fds, dec
@@ -65,8 +74,8 @@ def _get_candidates(y, y_pp, fs, Fds, dec, min_f0=40, max_f0=500, frame_step=0.0
     # frame parameters at original sample rate (used in second pass)
     z     = round(frame_step * fs)   # frame step in samples
     n     = round(wind_dur * fs)     # window size in samples
-    k_min = round(fs / max_f0)       # shortest lag you'll test 
-    k_max = round(fs / min_f0)       # longest lag you'll test 
+    k_min = round(fs / max_f0)       # shortest lag you'll test
+    k_max = round(fs / min_f0)       # longest lag you'll test
     K     = k_max - k_min + 1        # number of lags
 
     # frame parameters at downsampled rate (first NCCF pass)
@@ -82,12 +91,12 @@ def _get_candidates(y, y_pp, fs, Fds, dec, min_f0=40, max_f0=500, frame_step=0.0
     all_candidates = []
     all_max_vals   = []
 
-    # penalty that discourages long lags 
-    lag_wt = 0.3 / K   # 
+    # penalty that discourages long lags
+    lag_wt = 0.3 / K   #
 
     for i in range(n_frames):
         # starting position for frame i in ds signal
-        p_ds  = (i * z) // dec    
+        p_ds  = (i * z) // dec
         frame_ds = _subtract_mean(y_pp[p_ds : p_ds + n_ds + k_max_ds], n_ds)
         ref   = frame_ds[:n_ds]
         # energy at reference window
@@ -99,7 +108,7 @@ def _get_candidates(y, y_pp, fs, Fds, dec, min_f0=40, max_f0=500, frame_step=0.0
             for ki in range(K_ds):
                 k      = k_min_ds + ki
                 lagged = frame_ds[k : k + n_ds]
-                # energy of the lagged window 
+                # energy of the lagged window
                 E_lag  = np.dot(lagged, lagged)
                 if E_lag > 0:
                     nccf_ds[ki] = np.dot(ref, lagged) / np.sqrt(E_ref * E_lag)
@@ -126,7 +135,6 @@ def _get_candidates(y, y_pp, fs, Fds, dec, min_f0=40, max_f0=500, frame_step=0.0
         max_val    = 0.0
         if E_ref_fine > 0:
             for lag_full in fine_lags:
-                # instead of searching over every lag, only search a 7-point window around each coarse candidate lag
                 lag_lo = max(k_min, lag_full - 3)
                 lag_hi = min(k_max, lag_full + 3)
                 n_fine = lag_hi - lag_lo + 1
@@ -203,55 +211,66 @@ def _local_costs(fine_cands, max_val, k_max, lag_weight=0.3, voice_bias=0.0):
 # take 1 frame, fit 30ms hanning window to it, calculate rms energy
 # take previous frame, fit 30 ms hanning window, calculate rms energy 
 # compute the ratio between the two
+def _snack_hanning(n):
+    # Snack xhnwindow: 0.5 - 0.5*cos(2π*(i+0.5)/n) — half-sample offset, differs from np.hanning
+    i = np.arange(n, dtype=float)
+    return 0.5 - 0.5 * np.cos(2.0 * np.pi * (i + 0.5) / n)
+
+
 def _rms_ratio(curr_win, prev_win):
     n    = len(curr_win)
-    hann = np.hanning(n)
+    hann = _snack_hanning(n)
     rms_curr = np.sqrt(np.dot(curr_win * hann, curr_win * hann) / n)
     rms_prev = np.sqrt(np.dot(prev_win * hann, prev_win * hann) / n)
-    # handles edge cases 
     if rms_prev > 0.0:
         return (0.001 + rms_curr) / rms_prev
     elif rms_curr > 0.0:
-        return 2.0   # energy increasing from silence
+        return 2.0
     else:
-        return 1.0   # both silent
+        return 1.0
 
-# return spectral similarity across frame i and frame i-1
-# difficult to replicate. If there are issues with voice(less) to voice(less) transitions then you know its this
+
 def _spectral_similarity(curr_win, prev_win, fs):
-    order   = int(2 + fs / 1000)   # LPC order
-    # differs from paper which calculates preemphasis based on sampling rate
-    preemp  = 0.4                   # preemphasis
+    order  = int(2 + fs / 1000)
+    preemp = 0.4
+    # LPC stabilization factor matching Snack's stab=30: ffact = 1/(1 + 10^(-30/20))
+    ffact  = 1.0 / (1.0 + np.exp((-30.0 / 20.0) * np.log(10.0)))  # ≈ 0.969
 
     def _preemph_hann(win):
         w      = win.astype(float).copy()
         w[1:] -= preemp * w[:-1]
-        return w * np.hanning(len(w))
+        return w * _snack_hanning(len(w))
 
     def _lpc(frame, p):
         r = np.array([np.dot(frame[:len(frame)-k], frame[k:]) for k in range(p + 1)])
         if r[0] == 0:
             return np.zeros(p), r, 1.0
-        R = np.array([[r[abs(i-j)] for j in range(p)] for i in range(p)])
+        # Apply Snack LPC stabilization: scale off-diagonal autocorrelation by ffact.
+        # Use stabilized r for both the Durbin solve AND the error — this is what Snack
+        # does (xlpc scales r[1..p] then passes to xdurbin; normerr comes from xdurbin
+        # on the stabilized r). A previous attempt used unstabilized r for the error,
+        # which caused itakura < 0.81 on every frame.
+        r_s = r.copy()
+        r_s[1:] *= ffact
+        R = np.array([[r_s[abs(i-j)] for j in range(p)] for i in range(p)])
         try:
-            a = np.linalg.solve(R, -r[1:])
+            a = np.linalg.solve(R, -r_s[1:])
         except np.linalg.LinAlgError:
-            return np.zeros(p), r, 1.0
-        err = max(r[0] + np.dot(a, r[1:]), 1e-10)
-        return a, r, err
+            return np.zeros(p), r_s, 1.0
+        err = max(r_s[0] + np.dot(a, r_s[1:]), 1e-10)
+        return a, r_s, err
 
-    curr_w              = _preemph_hann(curr_win)
-    prev_w              = _preemph_hann(prev_win)
-    a_curr, _, _        = _lpc(curr_w, order)
+    curr_w = _preemph_hann(curr_win)
+    prev_w = _preemph_hann(prev_win)
+    a_curr, _,      _        = _lpc(curr_w, order)
     _,      r_prev, err_prev = _lpc(prev_w, order)
 
-    # Itakura distance: how poorly the current frame's LPC predicts the previous frame
-    a_full   = np.concatenate([[1.0], a_curr])
-    itakura  = sum(a_full[i] * a_full[j] * r_prev[abs(i-j)]
-                   for i in range(order + 1) for j in range(order + 1)) / err_prev
-    itakura  = max(itakura, 0.81)   # clamp matching Snack
+    a_full  = np.concatenate([[1.0], a_curr])
+    itakura = sum(a_full[i] * a_full[j] * r_prev[abs(i-j)]
+                  for i in range(order + 1) for j in range(order + 1)) / err_prev
+    itakura = max(itakura, 0.81)
 
-    return 0.2 / (itakura - 0.8)   # S = 0.2 / (itakura - 0.8)
+    return 0.2 / (itakura - 0.8)
 
 
 # transition costs
@@ -339,7 +358,7 @@ def _dp_backtrack(all_candidates, cum_costs, backptrs, fs):
     return f0
 
 
-# final function 
+# final function
 def get_pitch_snack(wavfile, frameshift_ms=1, datalen=None, min_f0=40, max_f0=500,
                     wind_dur=0.025, n_cands=20, lag_weight=0.3, voice_bias=0.0,
                     trans_cost=0.005, trans_amp=0.5, trans_spec=0.5,
@@ -350,27 +369,28 @@ def get_pitch_snack(wavfile, frameshift_ms=1, datalen=None, min_f0=40, max_f0=50
     frame_step = frameshift_ms / 1000.0
     # lowpass + downsample
     y_pp, Fds, dec = _preprocess(y, fs, max_f0)
-    # 2 pass NCCF 
+    # 2 pass NCCF
     all_candidates, all_max_vals, n_frames, z, _, k_max = _get_candidates(
         y, y_pp, fs, Fds, dec, min_f0, max_f0, frame_step, wind_dur, n_cands)
     n_voiced = sum(1 for c in all_candidates if len(c) > 0)
 
-    # compute spectral similarity and energy ratios between adjacent frames 
+    # compute spectral similarity and energy ratios between adjacent frames
     stats, rms_ratios = _get_stationarity(y, fs, n_frames, z)
-    # compute costs and find best path 
+    # compute costs and find best path
     cum_costs, backptrs = _dp_forward(
         all_candidates, all_max_vals, stats, rms_ratios, k_max,
         lag_weight, voice_bias, trans_cost, trans_amp, trans_spec,
         freq_weight, double_cost, frame_step)
-    # use backtracking function to find best peaks and calculate F0 
+    # use backtracking function to find best peaks and calculate F0
     raw_f0 = _dp_backtrack(all_candidates, cum_costs, backptrs, fs)
 # create fixed-length output array
+    # prepend half-window NaN offset to match VoiceSauce's sF0 alignment
+    half_win = int(wind_dur / frame_step / 2)
     if datalen is None:
-        datalen = n_frames
+        datalen = n_frames + half_win
     f0 = np.full(datalen, np.nan)
     for i, val in enumerate(raw_f0):
-        t_ms = i * frameshift_ms
-        idx  = round(t_ms / frameshift_ms)
+        idx = i + half_win
         if 0 <= idx < datalen:
             f0[idx] = val if val > 0 else np.nan
 

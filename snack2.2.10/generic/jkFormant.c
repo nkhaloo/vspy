@@ -133,6 +133,7 @@ void get_fcand(npole,freq,band,nform,pcan)
   ncan++;	/* (converts ncan as an index to ncan as a candidate count) */
 }
 
+
 void set_nominal_freqs(f1)
      double f1;
 {
@@ -143,6 +144,7 @@ void set_nominal_freqs(f1)
     fmaxs[i] = fnom[i] + (i * f1) + 1000.0;
   }
 }
+
 
 /*      ----------------------------------------------------------      */
 /* find the maximum in the "stationarity" function (stored in rms) */
@@ -158,6 +160,7 @@ double get_stat_max(pole, nframes)
 
   return(amax);
 }
+
 
 Sound *dpform(ps, nform, nom_f1)
      Sound *ps;
@@ -213,6 +216,12 @@ Sound *dpform(ps, nform, nom_f1)
       fl = (FORM**)ckalloc(sizeof(FORM*) * ps->length);
       for(i=0;i < ps->length; i++)
 	fl[i] = (FORM*)ckalloc(sizeof(FORM));
+
+
+
+
+
+
 
       /*******************************************************************/
       /* main formant tracking loop */
@@ -319,6 +328,9 @@ Sound *dpform(ps, nform, nom_f1)
 	}
       }				/* end for all analysis frames... */	
       /**************************************************************************/
+
+
+      
 
       /* Pick the candidate in the final frame with the lowest cost. */
       /* Starting with that min.-cost cand., work back thru the lattice. */

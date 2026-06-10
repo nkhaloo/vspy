@@ -8,7 +8,7 @@ def get_formants_praat(
     frameshift_ms=1,
     datalen=None,
     num_formants=4,
-    max_formant_freq=5500,
+    max_formant_freq=6000,
     window_length=0.025,
     #high frequency boost parameter - flattens spectral tilt, makes formant peaks easier to see
     pre_emphasis_from=50.0
@@ -38,15 +38,12 @@ def get_formants_praat(
     B3 = np.full(datalen, np.nan)
     B4 = np.full(datalen, np.nan)
 
-    #frame loop: calculate formants at each timestamp 
     for i in range(datalen):
         t = i * frameshift_s
-        # at each timestamp, get formant value
         F1[i] = formant.get_value_at_time(1, t)
         F2[i] = formant.get_value_at_time(2, t)
         F3[i] = formant.get_value_at_time(3, t)
         F4[i] = formant.get_value_at_time(4, t)
-        #same for bandwidths 
         B1[i] = formant.get_bandwidth_at_time(1, t)
         B2[i] = formant.get_bandwidth_at_time(2, t)
         B3[i] = formant.get_bandwidth_at_time(3, t)

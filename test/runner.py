@@ -1,9 +1,8 @@
 from vspy import vspy, Path
 
-source = Path("test/soundfiles")
+source = Path("test/wav")
 
-# make sure to add the option of tuning hyperparamters for F0 and formants to this 
-df = vspy(source, textgrid_dir=Path("test/textgrids"), tier="vowel", features = ["f0_praat", "f0_snack"])
+df = vspy(source, textgrid_dir=Path("test/textgrid"), tier="words", output_csv="test/output.csv", f0_source='snack', formant_source='snack')
 
 print(df.shape)
 print(df.head(20))

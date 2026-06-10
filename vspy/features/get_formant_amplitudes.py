@@ -19,7 +19,7 @@ def get_formant_amplitudes(y, Fs, F0, F1, F2, F3, n_periods=3):
         hi = min(4095, round((Fx * 1.1) / fstep))
         return np.max(X_db[lo:hi+1])
 
-    # frame loop    
+    # frame loop
     sampleshift = Fs / 1000
 
     for k in range(n_frames):

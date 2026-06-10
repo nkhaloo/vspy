@@ -4,8 +4,9 @@ import numpy as np
 
 # reads file, finds tier by name, and return a list of (start_ms, end_ms, and label)
 def parse_textgrid(tg_path, tier_name):
-    with open(tg_path, "r", encoding="utf-8") as f:
-        lines = [l.strip() for l in f.readlines()]
+    raw = open(tg_path, "rb").read()
+    enc = "utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8"
+    lines = [l.strip() for l in raw.decode(enc).splitlines()]
 
     intervals = []
     in_tier = False

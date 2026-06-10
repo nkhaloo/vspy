@@ -10,20 +10,20 @@ def get_pitch_praat(
     wavfile,
     frameshift_ms=1,
     datalen=None,
-    min_f0=75,
-    max_f0=600,
+    min_f0=40,
+    max_f0=500,
     sil_threshold=0.03,
     voicing_threshold=0.45,
     octave_cost=0.01,
     octave_jump_cost=0.35,
     voiced_unvoiced_cost=0.14
 ):
-    #load soundfile into parselmouth 
+    #load soundfile into parselmouth
     snd = parselmouth.Sound(str(wavfile))
     #Praat uses s not ms, so we convert framshift to s
     frameshift_s = frameshift_ms / 1000
-    #run pitch tracker using hyperparams 
-    pitch = snd.to_pitch_ac(
+    #run pitch tracker using hyperparams
+    pitch = snd.to_pitch_cc(
             time_step=frameshift_s,
             pitch_floor=min_f0,
             pitch_ceiling=max_f0,

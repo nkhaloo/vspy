@@ -1,364 +1,473 @@
+"""
+Python port of Snack's jkFormant.c — David Talkin / John Shore (AT&T/KTH)
+Dynamic-programming LPC formant tracker.
+"""
 import numpy as np
 import pandas as pd
-from scipy.signal import resample_poly, lfilter
-from math import gcd
+from scipy.signal import resample_poly
 from vspy.io import read_wav
 
-# DP cost constant
-_FNOM  = [500., 1500., 2500., 3500., 4500., 5500., 6500.]
-_FMINS = [ 50.,  400., 1000., 2000., 2000., 3000., 3000.]
-_FMAXS = [1500., 3500., 4500., 5000., 6000., 6000., 8000.]
-_MISSING   = 1.0
-_NOBAND    = 1000.0
-_DF_FACT   = 20.0
-_DFN_FACT  = 0.3
-_BAND_FACT = 0.002
-_F_BIAS    = 0.0
-_F_MERGE   = 2000.0
+# ---------------------------------------------------------------------------
+# Hyperparameters (jkFormant.c lines 44-59)
+# ---------------------------------------------------------------------------
+
+MAXCAN      = 300   # Maximum number of candidate pole-to-formant mappings per frame
+MAXFORMANTS = 7     # Maximum number of formant slots (F1–F7)
+MAXORDER    = 30    # Maximum LPC order
+
+MISSING  = 1.0      # Penalty (in equivalent delta-Hz) when a formant has no pole assigned
+NOBAND   = 1000.0   # Penalty (in equivalent Hz bandwidth) for a missing formant;
+                    # roughly one "formant slot" per 1000 Hz of the spectrum
+
+DF_FACT  = 20.0     # Weight on frame-to-frame frequency jump cost;
+                    # higher values enforce smoother formant tracks
+
+DFN_FACT = 0.3      # Weight on deviation from nominal formant frequencies (fnom);
+                    # discourages tracks that stray too far from expected locations
+
+BAND_FACT = 0.002   # Cost per Hz of pole bandwidth; prefers narrower, more
+                    # resonance-like poles
+
+F_BIAS   = 0.000    # Bias toward low-frequency poles (currently disabled / zero)
+
+F_MERGE  = 2000.0   # Penalty for mapping F1 and F2 to the same pole frequency
+
+# Nominal formant frequencies (Hz) — used as soft targets when a candidate
+# formant is missing; one entry per formant slot (F1–F7)
+fnom  = np.array([500,  1500, 2500, 3500, 4500, 5500, 6500], dtype=np.float64)
+
+# Allowed frequency range for each formant slot (Hz)
+fmins = np.array([ 50,   400, 1000, 2000, 2000, 3000, 3000], dtype=np.float64)
+fmaxs = np.array([1500, 3500, 4500, 5000, 6000, 6000, 8000], dtype=np.float64)
+
+domerge = True  # flag controlling whether f1/f2 merge penalty is applied
+
+# main function 
+def get_formants(signal: np.ndarray, samprate: float, frame_int: float,
+                 lpc_ord: int, nform: int = 4,
+                 ds_freq: float = 10000.0) -> tuple[np.ndarray, np.ndarray]:
+    if nform > (lpc_ord - 4) // 2:
+        raise ValueError(
+            f"nform ({nform}) must be <= (lpc_ord - 4) // 2 = {(lpc_ord - 4) // 2}"
+        )
+    if nform > MAXFORMANTS:
+        raise ValueError(f"nform must be <= {MAXFORMANTS}")
+
+    sig, effective_rate = preprocess(signal, samprate, ds_freq)
+    poles = lpc_poles(sig, effective_rate, frame_int, lpc_ord)
+    return dpform(poles, nform, effective_rate)
 
 
-#  1. Highpass filter 
-
-def _highpass(y):
-    """Hanning FIR highpass matching SNACK's highpass() — assumes 10 kHz input."""
-    LCSIZ  = 101
-    n_half = 1 + LCSIZ // 2          # 51 half-filter coefficients
-    fn     = np.pi * 2.0 / (LCSIZ - 1)
-    scale  = 32767.0 / (0.5 * LCSIZ)
-
-    # ic[0] = center (large), ic[50] = edge (small)
-    ic = np.array([round(scale * (0.5 + 0.4 * np.cos(fn * i)))
-                   for i in range(n_half)], dtype=np.float64)
-
-    # Inverted (highpass) filter of length 2*n_half-1 = 101.
-    # Off-center coefficients are negated; center = 2*sum(ic[1:]).
-    # This is SNACK's do_fir() with invert=1.
-    co = np.empty(2 * n_half - 1)
-    co[:n_half - 1] = -ic[n_half - 1:0:-1]  # left half: -ic[50..1]
-    co[n_half - 1]  =  2.0 * np.sum(ic[1:]) # center
-    co[n_half:]     = -ic[1:]                # right half: -ic[1..50]
-
-    return lfilter(co / 32768.0, 1.0, y)
+# takes decimals and converts to the closest fraction
+# 10000/44100 = 0.2268
+# converts to 2/9, which allows resampler to upsample by 2, downsample by 9
+def _ratprx(a: float, qlim: int = 10) -> tuple[int, int]:
+    aa = abs(a)
+    ai = int(aa)
+    af = aa - ai
+    em, pp, qq = 1.0, 0, 0
+    for q in range(1, qlim + 1):
+        ps = q * af
+        ip = int(ps + 0.5)
+        e  = abs((ps - ip) / q)
+        if e < em:
+            em, pp, qq = e, ip, q
+    k = int(ai * qq + pp)
+    return (-k if a < 0 else k), qq
 
 
-#  2. Stabilized covariance LPC 
+# downsamples and highpass filters audio 
+def preprocess(signal: np.ndarray, samprate: float,
+               ds_freq: float = 10000.0) -> tuple[np.ndarray, int]:
+    # Keep as float64 for downsampling (resample_poly silently returns zeros for int input)
+    sig = np.asarray(signal, dtype=np.float64)
+    if np.abs(sig).max() <= 1.0:      # normalize float [-1,1] → int16 range
+        sig = sig * 32767.0
 
-def _lpcbsa(frame, wind, order, preemp=0.7, xl=0.09):
-    """Stabilized covariance LPC matching SNACK's lpcbsa() + dlpcwtd().
-    Returns (lpc_coefficients, energy).  Coefficients do not include leading 1."""
-    owind = wind
-    # Hamming window: period = owind (note: 2π/owind, not /(owind-1))
-    w = 0.54 - 0.46 * np.cos(np.arange(owind) * (2.0 * np.pi / owind))
+    # Fdownsample: rational-approximate the ratio, resample if ratio_t <= 0.99
+    if ds_freq < samprate:
+        insert, decimate = _ratprx(ds_freq / samprate)
+        ratio_t = insert / decimate
+        if ratio_t <= 0.99:
+            sig      = resample_poly(sig, insert, decimate)
+            samprate = samprate * ratio_t
 
-    # Copy frame, zero-padded to wind+order+1 samples
-    total = wind + order + 1
-    sig   = np.zeros(total)
-    n_cp  = min(len(frame), total)
-    sig[:n_cp] = frame[:n_cp]
+    sig = sig.clip(-32768, 32767).astype(np.int16)
 
-    wind1 = wind + order  # last useful index exclusive
-    # Forward preemphasis: sig[i] ← sig[i+1] − preemp·sig[i], i = 0..wind1-2
-    # This matches the C loop: *(psp3-1) = *psp3 - preemp * *(psp3-1)
-    sig[:wind1 - 1] = sig[1:wind1] - preemp * sig[:wind1 - 1]
+    # highpass() + do_fir(invert=1): 101-tap FIR designed for ~10 kHz audio
+    # lcf uses C (short) truncation-toward-zero, matching `(short)(scale * x)`
+    LCSIZ = 101
+    ncoef = 1 + LCSIZ // 2                          # 51 half-coefficients
+    fn    = np.pi * 2.0 / (LCSIZ - 1)               # 2π/100
+    scale = 32767.0 / (0.5 * LCSIZ)
+    lcf   = (scale * (0.5 + 0.4 * np.cos(fn * np.arange(ncoef)))).astype(np.int16)
 
-    energy = np.sqrt(np.sum(sig[order:wind1] ** 2) / owind)
-    if energy < 1e-10:
-        return np.zeros(order), energy
-    sig[:wind1] /= energy
+    # Spectral inversion: turns lowpass filter into a high pass by negating every coefficent and adding 2·Σlcf[1:] to the center tap
+    # basically, pass everything minus the lowpass = highpass 
+    co              = np.zeros(LCSIZ, dtype=np.int64)
+    co[:ncoef - 1]  = -lcf[ncoef - 1:0:-1]          # -lcf[50], …, -lcf[1]
+    co[ncoef:]      = -lcf[1:]                        # -lcf[1],  …, -lcf[50]
+    co[ncoef - 1]   = 2 * int(np.sum(lcf[1:].astype(np.int64)))
 
-    # Weighted covariance matrix (dcwmtrx) ─────────────────────────────────
-    ni, nl = order, wind1  # ni=lpc_order, nl=wind+order
+    # Fixed-point convolution matching do_fir: (Σ coef·sample + 16384) >> 15
+    conv = np.convolve(sig.astype(np.int64), co, mode='same')
+    out  = ((conv + 16384) >> 15).astype(np.int16)
 
-    ps  = float(np.sum(sig[ni:nl] ** 2 * w))
-    shi = np.array([np.dot(sig[ni:nl] * w, sig[ni - 1 - k:nl - 1 - k])
-                    for k in range(order)])
-
-    phi = np.zeros((order, order))
-    for i in range(order):
-        ai = ni - i - 1
-        for j in range(i + 1):
-            aj  = ni - j - 1
-            sm  = float(np.dot(sig[ai:ai + owind] * sig[aj:aj + owind], w))
-            phi[i, j] = phi[j, i] = sm
-
-    p_diag = np.diag(phi).copy()
-
-    # Estimate prediction error (ee = ps − shi·phi⁻¹·shi) for ridge scaling
-    try:
-        L   = np.linalg.cholesky(phi + np.eye(order) * 1e-12)
-        c_  = np.linalg.solve(L, shi)
-        ee  = max(ps - float(np.dot(c_, c_)), 1e-30)
-    except np.linalg.LinAlgError:
-        ee = ps * 0.01
-
-    # Ridge regularization matching dlpcwtd():
-    #   diagonal   += pre3,  ±1 off-diagonal −= pre2,  ±2 off-diagonal += pre0
-    pre  = ee * xl
-    pr3, pr2, pr0 = 0.375 * pre, 0.25 * pre, 0.0625 * pre
-
-    phi_r = phi.copy()
-    np.fill_diagonal(phi_r, p_diag + pr3)
-    for i in range(1, order):
-        phi_r[i, i - 1] -= pr2
-        phi_r[i - 1, i] -= pr2
-    for i in range(2, order):
-        phi_r[i, i - 2] += pr0
-        phi_r[i - 2, i] += pr0
-
-    shi_r = shi.copy()
-    shi_r[0] -= pr2
-    if order > 1:
-        shi_r[1] += pr0
-
-    try:
-        a = np.linalg.solve(phi_r, shi_r)
-    except np.linalg.LinAlgError:
-        return np.zeros(order), energy
-    return a, energy
+    return out, int(samprate)
 
 
-# ── 3. LPC → poles ───────────────────────────────────────────────────────────
+# takes freq (pole frequencies) and nform(how many formants you want), allocates a pc array, then runs candy to fill it
+# basically chooses formant candidates from a series of poles
+def get_fcand(freq: np.ndarray, nform: int) -> np.ndarray:
+    freq  = np.asarray(freq, dtype=np.float64)
+    npole = len(freq)
+    pc    = np.full((MAXCAN, nform), -1, dtype=np.int16)
+    ncan  = 0
 
-def _poles_from_lpc(a, fs):
-    """Convert LPC coefficients to (freq_list, bw_list) for complex poles only."""
-    roots  = np.roots(np.concatenate([[1.0], a]))
-    roots  = roots[np.imag(roots) > 0]
-    freqs  = np.arctan2(np.imag(roots), np.real(roots)) * (fs / (2.0 * np.pi))
-    bws    = -np.log(np.abs(roots)) * (fs / np.pi)
-    order  = np.argsort(freqs)
-    freqs, bws = freqs[order], bws[order]
-    mask   = (freqs > 1.0) & (freqs < fs / 2.0 - 1.0)
-    return freqs[mask].tolist(), bws[mask].tolist()
+# checks if pole pnumb falls within the allowed frequency range
+    def canbe(pnumb, fnumb):
+        return fmins[fnumb] <= freq[pnumb] <= fmaxs[fnumb]
 
-
-# ── 4. Candidate generation (candy / get_fcand) ───────────────────────────────
-
-def _get_fcand(freqs, _bands, nform):
-    """All pole-to-formant candidate mappings, matching SNACK's get_fcand()."""
-    n_poles = len(freqs)
-    MAXCAN  = 300
-    pc      = [[-1] * nform for _ in range(MAXCAN)]
-    ncan    = [0]
-
-    def canbe(p, f):
-        return _FMINS[f] <= freqs[p] <= _FMAXS[f]
-
+# recursively fills rows of pc by assigning poles to formant slots as candidates 
     def candy(cand, pnumb, fnumb):
-        if ncan[0] >= MAXCAN - 1:
-            return
+        nonlocal ncan
+
         if fnumb < nform:
-            pc[cand][fnumb] = -1
-        if pnumb < n_poles and fnumb < nform:
+            pc[cand, fnumb] = -1
+
+        if pnumb < npole and fnumb < nform:
             if canbe(pnumb, fnumb):
-                pc[cand][fnumb] = pnumb
-                # F1/F2 merger: same pole may also be F2
-                if fnumb == 0 and fnumb + 1 < nform and canbe(pnumb, fnumb + 1):
-                    ncan[0] += 1
-                    nc = ncan[0]
-                    pc[nc][0] = pc[cand][0]
-                    candy(nc, pnumb, fnumb + 1)
+                pc[cand, fnumb] = pnumb
+                if domerge and fnumb == 0 and canbe(pnumb, fnumb + 1):
+                    ncan += 1
+                    pc[ncan, 0] = pc[cand, 0]
+                    candy(ncan, pnumb, fnumb + 1)
                 candy(cand, pnumb + 1, fnumb + 1)
-                # alternative assignment: try next pole for same formant
-                if pnumb + 1 < n_poles and canbe(pnumb + 1, fnumb):
-                    ncan[0] += 1
-                    nc = ncan[0]
-                    for k in range(fnumb):
-                        pc[nc][k] = pc[cand][k]
-                    candy(nc, pnumb + 1, fnumb)
+                if (pnumb + 1) < npole and canbe(pnumb + 1, fnumb):
+                    ncan += 1
+                    pc[ncan, :fnumb] = pc[cand, :fnumb]
+                    candy(ncan, pnumb + 1, fnumb)
             else:
                 candy(cand, pnumb + 1, fnumb)
-        # Exhausted poles for this formant: advance to next with missing slot
-        if pnumb >= n_poles and fnumb < nform - 1 and pc[cand][fnumb] < 0:
-            j = fnumb - 1
-            while j > 0 and pc[cand][j] < 0:
-                j -= 1
-            i = pc[cand][j] if (fnumb > 0 and pc[cand][j] >= 0) else 0
+
+        if pnumb >= npole and fnumb < nform - 1 and pc[cand, fnumb] < 0:
+            if fnumb:
+                j = fnumb - 1
+                while j > 0 and pc[cand, j] < 0:
+                    j -= 1
+                i = int(pc[cand, j]) if pc[cand, j] >= 0 else 0
+            else:
+                i = 0
             candy(cand, i, fnumb + 1)
 
     candy(0, 0, 0)
-    ncan[0] += 1
-    return [list(pc[i]) for i in range(ncan[0])]
+    # returns a 2D array where each row is a pole to formant candiate
+    return pc[:ncan + 1]
 
 
-# ── 5. DP formant tracker (dpform) ───────────────────────────────────────────
+# function that takes in LPC coefficients and returns poles and bandwidths in hz per frame
+def formant(_lpc_ord: int, s_freq: float, lpca: np.ndarray,
+            _init: bool) -> tuple[np.ndarray, np.ndarray]:
+    nyquist = s_freq / 2.0
+    pi2t    = 2.0 * np.pi / s_freq
 
-def _dpform(all_freqs, all_bands, all_rms, nform, frame_rate=1000.0):
-    """DP formant tracking matching SNACK's dpform().
-    frame_rate is the LPC analysis rate in Hz (= 1000 / frameshift_ms)."""
-    n_frames = len(all_freqs)
-    rmsmax   = max((r for r in all_rms if r > 0.0), default=1.0)
+    roots = np.roots(lpca)
 
-    # Scale cost weights to frame rate (matching dpform()'s dffact/bfact/ffact)
-    dffact = _DF_FACT   * 0.01 * frame_rate
-    bfact  = _BAND_FACT / (0.01 * frame_rate)
-    ffact  = _DFN_FACT  / (0.01 * frame_rate)
-    FBIAS  = _F_BIAS    / (0.01 * frame_rate)
+    freq_list = []
+    band_list = []
 
-    all_cands = [_get_fcand(f, None, nform) if f else []
-                 for f, _ in zip(all_freqs, all_bands)]
-
-    def local_cost(freqs, bands, mapping):
-        berr = ferr = fbias = merger = 0.0
-        for k in range(nform):
-            ic = mapping[k]
-            if ic >= 0:
-                if k == 0 and len(mapping) > 1 and mapping[1] == ic:
-                    merger = _F_MERGE
-                berr  += bands[ic]
-                ferr  += abs(freqs[ic] - _FNOM[k]) / _FNOM[k]
-                fbias += freqs[ic]
-            else:
-                fbias += _FNOM[k]
-                berr  += _NOBAND
-                ferr  += _MISSING
-        return FBIAS * fbias + bfact * berr + ffact * ferr + merger
-
-    # Forward pass ─────────────────────────────────────────────────────────
-    cum_errs = []
-    backptrs = []
-
-    for i in range(n_frames):
-        freqs   = all_freqs[i]
-        bands   = all_bands[i]
-        cands   = all_cands[i]
-        ncand   = len(cands)
-        rmsdff  = (all_rms[i] / rmsmax) * dffact
-
-        lc = (np.array([local_cost(freqs, bands, c) for c in cands])
-              if ncand else np.array([]))
-
-        if i == 0:
-            cum_errs.append(lc.copy() if ncand else np.array([]))
-            backptrs.append(np.full(ncand, -1, dtype=int))
+    for r in roots:
+        if r.imag < 0:          # skip lower half-plane (conjugate duplicates)
             continue
+        if r.real == 0.0 and r.imag == 0.0:
+            continue
+        theta = np.arctan2(r.imag, r.real)
+        f = abs(theta) / pi2t
+        b = abs(0.5 * s_freq * np.log(r.real**2 + r.imag**2) / np.pi)
+        freq_list.append(f)
+        band_list.append(b)
 
-        prev_cands = all_cands[i - 1]
-        prev_ce    = cum_errs[i - 1]
-        n_prev     = len(prev_cands)
-        new_ce     = np.full(ncand, np.inf)
-        new_bp     = np.full(ncand, -1, dtype=int)
+    freq = np.array(freq_list)
+    band = np.array(band_list)
+
+    # sort: complex poles (1 Hz < f < Nyquist) first by ascending freq, real poles last
+    is_complex = (freq > 1.0) & (freq < nyquist)
+    complex_idx = np.where(is_complex)[0]
+    real_idx    = np.where(~is_complex)[0]
+    order       = np.concatenate([complex_idx[np.argsort(freq[complex_idx])], real_idx])
+    freq, band  = freq[order], band[order]
+
+    return freq, band
+
+
+# computes LPC coefficients using stabalized BSA covariance 
+def lpcbsa(lpc_ord: int, wind: int, data: np.ndarray, preemp: float):
+    owind = wind
+
+    # Hamming window
+    w = 0.54 - 0.46 * np.cos(2 * np.pi * np.arange(owind) / owind)
+
+    total = owind + lpc_ord + 1
+
+    # copy data into buffer, zero-pad if short, add dither noise
+    sig = np.zeros(total, dtype=np.float64)
+    n = min(len(data), total)
+    sig[:n] = data[:n].astype(np.float64)
+    sig += 0.016 * np.random.uniform(size=total) - 0.008
+
+    # pre-emphasis: sig[k] = sig[k+1] - preemp*sig[k]  (vectorized, reads originals)
+    sig[:-1] = sig[1:] - preemp * sig[:-1]
+    sig = sig[:owind + lpc_ord]   # trim to wind1
+
+    # RMS energy normalization over the windowed output portion
+    energy = float(np.sqrt(np.dot(sig[lpc_ord:lpc_ord + owind],
+                                  sig[lpc_ord:lpc_ord + owind]) / owind))
+    if energy <= 0.0:
+        return np.zeros(lpc_ord + 1), 0.0
+    sig /= energy
+
+    # weighted covariance matrix and cross-correlation vector (dcwmtrx)
+    # weighted refers to hamming window being multiplied in 
+    p   = lpc_ord
+    phi = np.zeros((p, p))
+    shi = np.zeros(p)
+    y   = sig[p:p + owind]
+
+    for i in range(p):
+        # how correlated is the signal shifted by i with the signal shifted by j
+        si = sig[p - i - 1: p - i - 1 + owind]
+        for j in range(i + 1):
+            sj = sig[p - j - 1: p - j - 1 + owind]
+            v = float(np.dot(si * sj, w))
+            phi[i, j] = phi[j, i] = v
+        # how correlated is the unshifted signal with the signal shifted by i? 
+        shi[i] = float(np.dot(y * si, w))
+
+    # banded ridge regularization 
+    # adds a penalty that keeps the coefficients from changing a lot from one to the next 
+    pss = float(np.dot(y ** 2, w))
+    pre = 0.09 * pss
+    # these particular weights (0.375, -0.25, 0.0625) encode a second-difference operator
+    # matches Snack src smoothing
+    for i in range(p):
+        phi[i, i] += 0.375 * pre
+        if i > 0:
+            phi[i, i - 1] -= 0.25 * pre
+            phi[i - 1, i] -= 0.25 * pre
+        if i > 1:
+            phi[i, i - 2] += 0.0625 * pre
+            phi[i - 2, i] += 0.0625 * pre
+
+    try:
+        a = np.linalg.solve(phi, shi)
+    except np.linalg.LinAlgError:
+        return np.zeros(lpc_ord + 1), energy
+
+    # A(z) = 1 - a[0]*z^-1 - ... - a[p-1]*z^-p  →  decreasing-power coefficients
+    return np.concatenate([[1.0], -a]), energy
+
+
+# takes raw audio and returns per-frame resonant poles and bandwidths
+def lpc_poles(signal: np.ndarray, samprate: float, frame_int: float,
+              lpc_ord: int) -> list[dict]:
+    import math
+
+    if lpc_ord > MAXORDER or lpc_ord < 2:
+        raise ValueError(f"lpc_ord must be between 2 and {MAXORDER}")
+
+    wdur   = 0.025
+    preemp = math.exp(-62.831853 * 90.0 / samprate)   # exp(-1800*pi*T)
+
+    size = round(wdur * samprate)
+    step = round(frame_int * samprate)
+
+    nfrm = 1 + int((len(signal) / samprate - size / samprate) / (step / samprate))
+    if nfrm < 1:
+        raise ValueError("Signal too short for given window/frame parameters")
+
+    data  = signal.astype(np.int16)
+    poles = []
+    init  = True
+
+    for j in range(nfrm):
+        start = j * step
+        frame = data[start:start + size]
+
+        lpca, energy = lpcbsa(lpc_ord, size, frame, preemp)
+
+        if energy > 1.0:
+            freq, band = formant(lpc_ord, samprate, lpca, init)
+            init = False
+        else:
+            freq = np.empty(0)
+            band = np.empty(0)
+            init = True
+
+        poles.append({'rms': energy, 'freq': freq, 'band': band, 'npoles': len(freq)})
+
+    return poles
+
+
+# returns maximum RMS energy value across all frames. used later for normalization
+def get_stat_max(rms: np.ndarray) -> float:
+    return float(np.max(rms))
+
+
+# Dynamic programming: find the best path (left to right) for formants across all frames of an audio file
+def dpform(poles: list[dict], nform: int, samprate: float):
+    nframes = len(poles)
+
+    # scale cost weights to sample rate
+    dffact     = DF_FACT   * 0.01 * samprate
+    bfact      = BAND_FACT / (0.01 * samprate)
+    ffact      = DFN_FACT  / (0.01 * samprate)
+    FBIAS      = F_BIAS    / (0.01 * samprate)
+    merge_cost = F_MERGE
+    global domerge
+    if merge_cost > 1000.0:
+        domerge = False
+
+    rmsmax = get_stat_max(np.array([p['rms'] for p in poles]))
+
+    # output arrays
+    fr = np.zeros((nform, nframes))
+    ba = np.zeros((nform, nframes))
+
+    # DP lattice: one dict per frame with keys ncand, cand, cumerr, prept, freq, band
+    fl: list[dict] = [{'ncand': 0, 'cand': np.empty((0, nform), dtype=np.int16),
+                        'cumerr': np.empty(0), 'prept': np.empty(0, dtype=np.int32),
+                        'freq': np.empty(0), 'band': np.empty(0)}
+                       for _ in range(nframes)]
+
+    # ------------------------------------------------------------------ #
+    # Forward pass: build candidates and cumulative costs                  #
+    # ------------------------------------------------------------------ #
+    for i, pole in enumerate(poles):
+        freq = pole['freq']
+        band = pole['band']
+
+        # scale frequency-jump cost by relative RMS (louder = cheaper to jump)
+        rmsdffact = (pole['rms'] / rmsmax) * dffact
+
+        if len(freq) > 0:
+            cands = get_fcand(freq, nform)   # (ncand, nform)
+        else:
+            cands = np.empty((0, nform), dtype=np.int16)
+
+        ncand  = len(cands)
+        prept  = np.full(ncand, -1, dtype=np.int32)
+        cumerr = np.zeros(ncand)
 
         for j in range(ncand):
-            best_cost = np.inf
-            best_k    = -1
-            for k in range(n_prev):
-                pferr = 0.0
-                for fi in range(nform):
-                    ic = cands[j][fi]
-                    ip = prev_cands[k][fi]
-                    if ic >= 0 and ip >= 0:
-                        fc, fp = freqs[ic], all_freqs[i - 1][ip]
-                        t = 2.0 * abs(fc - fp) / (fc + fp)
-                        pferr += t * t
-                    else:
-                        pferr += _MISSING
-                conerr = rmsdff * pferr + prev_ce[k]
-                if conerr < best_cost:
-                    best_cost, best_k = conerr, k
-            new_ce[j] = lc[j] + (best_cost if n_prev else 0.0)
-            new_bp[j] = best_k
+            # --- transition cost: best connection to previous frame ---
+            if i > 0:
+                prev = fl[i - 1]
+                minerr = 2e30 if prev['ncand'] > 0 else 0.0
+                mincan = -1
+                for k in range(prev['ncand']):
+                    pferr = 0.0
+                    for fi in range(nform):
+                        ic = int(cands[j, fi])
+                        ip = int(prev['cand'][k, fi])
+                        if ic >= 0 and ip >= 0:
+                            ft = 2.0 * abs(freq[ic] - prev['freq'][ip]) / (freq[ic] + prev['freq'][ip])  # noqa: E501
+                            pferr += ft * ft
+                        else:
+                            pferr += MISSING
+                    conerr = rmsdffact * pferr + prev['cumerr'][k]
+                    if conerr < minerr:
+                        minerr = conerr
+                        mincan = k
+            else:
+                minerr = 0.0
+                mincan = -1
 
-        cum_errs.append(new_ce)
-        backptrs.append(new_bp)
+            prept[j] = mincan
 
-    # Backtrack ─────────────────────────────────────────────────────────────
-    fr = [[_FNOM[k]  for k in range(nform)] for _ in range(n_frames)]
-    ba = [[_NOBAND   for k in range(nform)] for _ in range(n_frames)]
-    mincan = -1
-
-    for i in range(n_frames - 1, -1, -1):
-        ce = cum_errs[i]
-        if mincan < 0 and len(ce) > 0 and not np.all(np.isinf(ce)):
-            mincan = int(np.argmin(ce))
-
-        if mincan >= 0 and mincan < len(all_cands[i]):
-            mapping = all_cands[i][mincan]
+            # --- local costs ---
+            berr  = 0.0
+            ferr  = 0.0
+            fbias = 0.0
+            merger = 0.0
             for k in range(nform):
-                ic = mapping[k]
+                ic = int(cands[j, k])
                 if ic >= 0:
-                    fr[i][k] = all_freqs[i][ic]
-                    ba[i][k] = all_bands[i][ic]
+                    if k == 0 and domerge:
+                        ic1 = int(cands[j, 1]) if nform > 1 else -1
+                        if ic1 >= 0 and freq[ic] == freq[ic1]:
+                            merger = merge_cost
+                    berr  += band[ic]
+                    ferr  += abs(freq[ic] - fnom[k]) / fnom[k]
+                    fbias += freq[ic]
                 else:
-                    if i < n_frames - 1:  # replicate backwards from next frame
-                        fr[i][k] = fr[i + 1][k]
-                        ba[i][k] = ba[i + 1][k]
-            mincan = (int(backptrs[i][mincan])
-                      if mincan < len(backptrs[i]) else -1)
+                    berr  += NOBAND
+                    ferr  += MISSING
+                    fbias += fnom[k]
+
+            cumerr[j] = FBIAS * fbias + bfact * berr + merger + ffact * ferr + minerr
+
+        fl[i] = {'ncand': ncand, 'cand': cands, 'cumerr': cumerr,
+                 'prept': prept, 'freq': freq, 'band': band}
+
+    # ------------------------------------------------------------------ #
+    # Backtrack: find min-cost path from last frame to first               #
+    # ------------------------------------------------------------------ #
+    mincan = -1
+    for i in range(nframes - 1, -1, -1):
+        frame = fl[i]
+
+        if mincan < 0 and frame['ncand'] > 0:
+            mincan = int(np.argmin(frame['cumerr']))
+
+        if mincan >= 0:
+            for j in range(nform):
+                k = int(frame['cand'][mincan, j])
+                if k >= 0:
+                    fr[j, i] = frame['freq'][k]
+                    ba[j, i] = frame['band'][k]
+                else:
+                    if i < nframes - 1:
+                        fr[j, i] = fr[j, i + 1]  # replicate backwards
+                        ba[j, i] = ba[j, i + 1]
+                    else:
+                        fr[j, i] = fnom[j]
+                        ba[j, i] = NOBAND
+            mincan = int(frame['prept'][mincan])
         else:
-            for fi in range(nform):
-                if i < n_frames - 1:
-                    fr[i][fi] = fr[i + 1][fi]
-                    ba[i][fi] = ba[i + 1][fi]
-            mincan = -1
+            for j in range(nform):
+                fr[j, i] = fnom[j]
+                ba[j, i] = NOBAND
 
     return fr, ba
 
 
-# ── 6. Main function ──────────────────────────────────────────────────────────
+def get_formants_snack(wavfile, frameshift_ms=1, datalen=None,
+                       lpc_ord=12, nform=4, ds_freq=10000.0):
+    """Registry-compatible wrapper around get_formants.
 
-def get_formants_snack(
-    wavfile,
-    frameshift_ms = 1,
-    datalen       = None,
-    num_formants  = 4,
-    window_ms     = 25,
-    pre_emphasis  = 0.98,
-    lpc_order     = 12,
-    ds_freq       = 10000,
-    max_bandwidth = 500,   # noqa: unused — DP tracker uses _FMINS/_FMAXS frequency bounds
-):
+    Returns a DataFrame with columns F1_snack…F4_snack and B1_snack…B4_snack,
+    matching the shape and naming convention of get_formants_praat.
+    """
     y, fs = read_wav(wavfile)
+    frame_int = frameshift_ms / 1000.0
 
-    # Downsample (pre-emphasis is handled per-frame inside _lpcbsa)
-    g    = gcd(ds_freq, fs)
-    y_ds = resample_poly(y, ds_freq // g, fs // g).astype(np.float64)
-
-    # Highpass filter matching SNACK's highpass() (assumes ds_freq = 10000)
-    y_ds = _highpass(y_ds)
-
-    frame_step = int(round(frameshift_ms / 1000 * ds_freq))
-    frame_size = int(round(window_ms    / 1000 * ds_freq))
-    n_frames   = max(0, (len(y_ds) - frame_size) // frame_step)
-
-    all_freqs = []
-    all_bands = []
-    all_rms   = []
-
-    for i in range(n_frames):
-        start = i * frame_step
-        frame = y_ds[start : start + frame_size]
-        if len(frame) < frame_size:
-            frame = np.pad(frame, (0, frame_size - len(frame)))
-
-        a, energy = _lpcbsa(frame, frame_size, lpc_order, preemp=pre_emphasis)
-        all_rms.append(energy)
-        freqs, bws = _poles_from_lpc(a, float(ds_freq))
-        all_freqs.append(freqs)
-        all_bands.append(bws)
+    fr, ba = get_formants(y, fs, frame_int, lpc_ord, nform, ds_freq)
+    nframes = fr.shape[1]
 
     if datalen is None:
-        datalen = n_frames
+        datalen = nframes
 
-    frame_rate = 1000.0 / frameshift_ms
-    fr, ba = _dpform(all_freqs, all_bands, all_rms, num_formants, frame_rate)
+    n = min(datalen, nframes)
+    cols = {}
+    for k in range(nform):
+        Fk = np.full(datalen, np.nan)
+        Bk = np.full(datalen, np.nan)
+        Fk[:n] = fr[k, :n]
+        Bk[:n] = ba[k, :n]
+        cols[f"F{k + 1}_snack"] = Fk
+        cols[f"B{k + 1}_snack"] = Bk
 
-    F = [np.full(datalen, np.nan) for _ in range(num_formants)]
-    B = [np.full(datalen, np.nan) for _ in range(num_formants)]
+    t_ms = np.arange(datalen, dtype=float) * frameshift_ms
+    return pd.DataFrame({"t_ms": t_ms, **cols})
 
-    for i in range(n_frames):
-        t_ms = i * frame_step / ds_freq * 1000
-        idx  = round(t_ms / frameshift_ms)
-        if 0 <= idx < datalen:
-            for k in range(num_formants):
-                f_val = fr[i][k]
-                b_val = ba[i][k]
-                if f_val != _FNOM[k] or b_val != _NOBAND:
-                    F[k][idx] = f_val
-                    B[k][idx] = b_val
 
-    t_ms = np.arange(datalen) * frameshift_ms
-    cols = {"t_ms": t_ms}
-    for k, name in enumerate(["F1", "F2", "F3", "F4"][:num_formants]):
-        cols[f"{name}_snack"] = F[k]
-        cols[f"B{k+1}_snack"] = B[k]
-    return pd.DataFrame(cols)
