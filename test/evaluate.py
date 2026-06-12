@@ -66,6 +66,14 @@ F0_PAIRS = [
     ("f0_praat", "pF0", "f0_praat"),
 ]
 
+# When --snack-only is passed, restrict the run to just these (snack formants +
+# bandwidths) and skip F0. Default is off, so omitting the flag restores the
+# full evaluation — nothing else to revert.
+SNACK_FB_NAMES = {
+    "F1_snack", "F2_snack", "F3_snack", "F4_snack",
+    "B1_snack", "B2_snack", "B3_snack",
+}
+
 
 # ---------------------------------------------------------------------------
 # Metric functions
@@ -139,7 +147,7 @@ def compute_f0_metrics(vspy_f0, vs_f0, total_rows):
 # Main
 # ---------------------------------------------------------------------------
 
-def run(vspy_path, vs_path, outdir):
+def run(vspy_path, vs_path, outdir, snack_only=False):
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
@@ -163,8 +171,12 @@ def run(vspy_path, vs_path, outdir):
     print(f"Merged rows: {total}")
 
     # --- general features ---
+    feature_pairs = FEATURE_PAIRS
+    if snack_only:
+        feature_pairs = [p for p in FEATURE_PAIRS if p[2] in SNACK_FB_NAMES]
+
     rows = []
-    for vspy_col, vs_col, name in FEATURE_PAIRS:
+    for vspy_col, vs_col, name in feature_pairs:
         vc = f"v_{vspy_col}"
         rc = f"r_{vs_col}"
         if vc not in merged.columns or rc not in merged.columns:
@@ -183,6 +195,10 @@ def run(vspy_path, vs_path, outdir):
     print(f"Saved feature metrics -> {out_features}")
 
     # --- F0 ---
+    if snack_only:
+        print("snack-only: skipping F0 metrics")
+        return
+
     f0_rows = []
     for vspy_col, vs_col, name in F0_PAIRS:
         vc = f"v_{vspy_col}"
@@ -208,5 +224,8 @@ if __name__ == "__main__":
     parser.add_argument("--vspy",   default="test/output.csv")
     parser.add_argument("--vs",     default="test/output_vs.csv")
     parser.add_argument("--outdir", default="test/compared_results")
+    parser.add_argument("--snack-only", action="store_true",
+                        help="evaluate only snack formants/bandwidths; skip F0 "
+                             "(default off; omit the flag to restore full eval)")
     args = parser.parse_args()
-    run(args.vspy, args.vs, args.outdir)
+    run(args.vspy, args.vs, args.outdir, snack_only=args.snack_only)

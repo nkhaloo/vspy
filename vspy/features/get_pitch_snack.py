@@ -383,15 +383,14 @@ def get_pitch_snack(wavfile, frameshift_ms=1, datalen=None, min_f0=40, max_f0=50
         freq_weight, double_cost, frame_step)
     # use backtracking function to find best peaks and calculate F0
     raw_f0 = _dp_backtrack(all_candidates, cum_costs, backptrs, fs)
-# create fixed-length output array
-    # prepend half-window NaN offset to match VoiceSauce's sF0 alignment
-    half_win = int(wind_dur / frame_step / 2)
+    # Emit on the native frame grid (frame i -> index i). The window-center
+    # alignment shift to match VoiceSauce's sF0 is applied centrally in
+    # registry.run() via WINDOW_MS, so it is not duplicated here.
     if datalen is None:
-        datalen = n_frames + half_win
+        datalen = n_frames
     f0 = np.full(datalen, np.nan)
     for i, val in enumerate(raw_f0):
-        idx = i + half_win
-        if 0 <= idx < datalen:
-            f0[idx] = val if val > 0 else np.nan
+        if 0 <= i < datalen:
+            f0[i] = val if val > 0 else np.nan
 
     return f0
