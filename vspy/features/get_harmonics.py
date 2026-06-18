@@ -1,7 +1,7 @@
 # calculate harmonic peaks and their amplitudes 
 
 import numpy as np
-from scipy.optimize import minimize_scalar
+from scipy.optimize import minimize
 
 # function that returns harmonic amplitudes
 def get_harmonics(y, Fs, F0, n_periods=3):
@@ -11,18 +11,26 @@ def get_harmonics(y, Fs, F0, n_periods=3):
     H4 = np.full(n_frames, np.nan)
 
     # df_amplitude computes a DFT at an arbitrary frequecy, giving you its amplitude
+    # does this at different frequencies across a 10% interval around the theoretical harmonic 
+    # optimizer tells it where to compute frequencies
     def dft_amplitude(segment, freq):
         n = np.arange(len(segment))
         v = np.exp(-1j * 2 * np.pi * freq * n / Fs)
         return 20 * np.log10(np.abs(segment @ v))
-    # find_peak calls dft_amplitude to find the maximum peak at a +/- 10% interval around f_est (estimated harmonic)
+    # find_peak mimics VoiceSauce's func_GetHarmonics: a local Nelder-Mead
+    # search starting at f_est, bounded to f_est +/- round(f_est*0.1) Hz
+    # (VS uses fminsearchbnd, which wraps fminsearch/Nelder-Mead with bounds
+    # via a transform and starts from x0=f_est -- unlike scipy's bounded
+    # Brent method, which ignores f_est and searches the whole bracket).
     def find_peak(segment, f_est):
-        f_min = f_est * 0.9
-        f_max = f_est * 1.1
-        result = minimize_scalar(
-            lambda f: -dft_amplitude(segment, f),
-            bounds=(f_min, f_max),
-            method='bounded'
+        df_range = round(f_est * 0.1)
+        f_min = f_est - df_range
+        f_max = f_est + df_range
+        result = minimize(
+            lambda f: -dft_amplitude(segment, f[0]),
+            x0=[f_est],
+            method='Nelder-Mead',
+            bounds=[(f_min, f_max)],
         )
         return -result.fun
 

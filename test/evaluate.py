@@ -79,6 +79,23 @@ SNACK_FB_NAMES = {
 # Metric functions
 # ---------------------------------------------------------------------------
 
+MAD_K = 3.5
+
+
+def mad_outlier_mask(x, k=MAD_K):
+    """Modified z-score (Iglewicz & Hoaglin) outlier mask via MAD.
+
+    Returns a boolean array, True where |0.6745*(x-median)/MAD| > k.
+    If MAD == 0 (no spread), nothing is flagged.
+    """
+    median = np.median(x)
+    mad = np.median(np.abs(x - median))
+    if mad == 0:
+        return np.zeros(len(x), dtype=bool)
+    modified_z = 0.6745 * (x - median) / mad
+    return np.abs(modified_z) > k
+
+
 def pearson_r(a, b):
     if len(a) < 3:
         return np.nan
@@ -95,10 +112,23 @@ def ccc(a, b):
     return 2 * covariance / denom if denom != 0 else np.nan
 
 def compute_general_metrics(vspy_vals, vs_vals, total_rows):
-    """Core metrics for a matched pair of arrays. total_rows is the merged row count."""
+    """Core metrics for a matched pair of arrays. total_rows is the merged row count.
+
+    Frames are dropped if either side is non-finite, OR if either side's value
+    is a MAD-based outlier (modified z-score > MAD_K) computed independently
+    per system (vspy vs. VS reference).
+    """
     mask = np.isfinite(vspy_vals) & np.isfinite(vs_vals)
-    n_valid = mask.sum()
     a, b = vspy_vals[mask], vs_vals[mask]
+    n_finite = mask.sum()
+
+    outlier_a = mad_outlier_mask(a)
+    outlier_b = mad_outlier_mask(b)
+    outliers  = outlier_a | outlier_b
+    keep = ~outliers
+    a, b = a[keep], b[keep]
+
+    n_valid = keep.sum()
     diff = a - b
     return {
         "pearson_r":  round(pearson_r(a, b), 4) if n_valid >= 3 else np.nan,
@@ -109,6 +139,10 @@ def compute_general_metrics(vspy_vals, vs_vals, total_rows):
         "coverage":   round(n_valid / total_rows, 4) if total_rows > 0 else np.nan,
         "n_valid":    int(n_valid),
         "n_total":    int(total_rows),
+        "n_finite":   int(n_finite),
+        "n_outliers_dropped": int(outliers.sum()),
+        "n_outliers_vspy":    int(outlier_a.sum()),
+        "n_outliers_vs":      int(outlier_b.sum()),
     }
 
 def compute_f0_metrics(vspy_f0, vs_f0, total_rows):
@@ -176,6 +210,7 @@ def run(vspy_path, vs_path, outdir, snack_only=False):
         feature_pairs = [p for p in FEATURE_PAIRS if p[2] in SNACK_FB_NAMES]
 
     rows = []
+    per_frame = merged[["_stem", "t_ms"]].copy()
     for vspy_col, vs_col, name in feature_pairs:
         vc = f"v_{vspy_col}"
         rc = f"r_{vs_col}"
@@ -188,11 +223,16 @@ def run(vspy_path, vs_path, outdir, snack_only=False):
             total,
         )
         rows.append({"feature": name, **metrics})
+        per_frame[f"err_{name}"] = merged[vc] - merged[rc]
 
     features_df = pd.DataFrame(rows)
     out_features = outdir / "feature_metrics.csv"
     features_df.to_csv(out_features, index=False)
     print(f"Saved feature metrics -> {out_features}")
+
+    out_per_frame = outdir / "per_frame_errors.csv"
+    per_frame.to_csv(out_per_frame, index=False)
+    print(f"Saved per-frame errors -> {out_per_frame}")
 
     # --- F0 ---
     if snack_only:

@@ -1,3 +1,3 @@
-feature,pearson_r,ccc,mean_error,median_error,mae,coverage,n_valid,n_total,vde,gpe,fpe_mean,fpe_std,n_both_voiced
-f0_snack,0.8532,0.852,2.064,-0.003,4.37,0.436,30217,69298,0.0422,0.0204,0.187,17.579,29789
-f0_praat,0.9959,0.9959,0.145,-0.002,0.614,0.5201,36040,69298,0.01,0.0027,0.145,6.564,36040
+feature,pearson_r,ccc,mean_error,median_error,mae,coverage,n_valid,n_total,n_finite,n_outliers_dropped,n_outliers_vspy,n_outliers_vs,vde,gpe,fpe_mean,fpe_std,n_both_voiced
+f0_snack,0.9984,0.9984,-0.024,-0.018,0.313,0.3329,23071,69298,30217,7146,6748,6854,0.0422,0.0204,0.187,17.579,29789
+f0_praat,0.9964,0.9964,-0.026,-0.013,0.398,0.3941,27311,69298,36040,8729,8686,8607,0.01,0.0027,0.145,6.564,36040

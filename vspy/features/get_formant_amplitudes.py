@@ -10,7 +10,7 @@ def get_formant_amplitudes(y, Fs, F0, F1, F2, F3, n_periods=3):
     A3 = np.full(n_frames, np.nan)
 
     # uses 8192 point FFT 
-    # instead if using DFT at a particular frequency, this function computes a FFT over the whole audio segment and returns the FFT bin with the highest amplitude
+    # calculates DFT at the multiple of Fs/N that's closest to the formant
     def fft_amplitude(segment, Fx):
         X = np.fft.fft(segment, 8192)
         X_db = 20 * np.log10(np.abs(X[:4096]) + 1e-10)

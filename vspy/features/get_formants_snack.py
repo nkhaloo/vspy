@@ -118,11 +118,6 @@ def _lc_lin_fir(fc: float, nf: int = 127) -> np.ndarray:
 # Exact port of Snack's do_fir() (downsample.c). `ic` holds the half-kernel
 # (ic[0] = center tap); the full symmetric kernel of length 2*ncoef-1 is built
 # here. invert=1 turns the lowpass into a highpass by spectral inversion.
-# CRITICAL: Snack rounds and >>15-shifts EACH tap product before summing
-# (sum += (co[t]*mem[t] + 16384) >> 15), not the final dot product. Summing in
-# full precision and shifting once (np.convolve) gives different int16 samples,
-# which perturbs every frame's LPC. We reproduce the per-tap rounding exactly.
-# The result is stored to int16 with wraparound (C stores into short), not clip.
 def _do_fir(buf: np.ndarray, ic: np.ndarray, ncoef: int, invert: bool) -> np.ndarray:
     ic = np.asarray(ic, dtype=np.int64)
     k  = 2 * ncoef - 1
