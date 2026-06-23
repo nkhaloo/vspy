@@ -14,6 +14,9 @@ from vspy.features.get_harmonics import get_harmonics
 from vspy.features.get_formant_amplitudes import get_formant_amplitudes
 from vspy.features.get_2k5k import get_2k5k
 from vspy.features.spectral_tilts import compute_tilts
+from vspy.features.get_cpp import get_cpp
+from vspy.features.get_soe import get_soe
+from vspy.features.get_hnr import get_hnr
 
 TARGET_FS = 16000
 
@@ -83,6 +86,18 @@ def vspy(source, features=None, frameshift_ms=1, output_csv="output.csv",
                                   F0, F1, F2, F3, fs_16k)
             for col, arr in tilts.items():
                 df[col] = arr
+
+            df['CPP'] = get_cpp(y_16k, fs_16k, F0, frame_shift=frameshift_ms)
+
+            soe_df = get_soe(y_16k, fs_16k, F0, frameshift_ms=frameshift_ms)
+            df['epoch'] = soe_df['epoch'].values
+            df['SoE'] = soe_df['soe'].values
+
+            HNR05, HNR15, HNR25, HNR35 = get_hnr(y_16k, fs_16k, F0, frameshift_ms=frameshift_ms)
+            df['HNR05'] = HNR05
+            df['HNR15'] = HNR15
+            df['HNR25'] = HNR25
+            df['HNR35'] = HNR35
 
         df["filename"] = path.name
 

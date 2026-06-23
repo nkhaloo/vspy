@@ -7,6 +7,7 @@ from vspy.features.get_formants_snack import get_formants_snack
 from vspy.features.get_formants_praat import get_formants_praat
 from vspy.features.get_pitch_praat import get_pitch_praat
 from vspy.features.get_pitch_snack import get_pitch_snack
+from vspy.features.get_shrp import get_shrp
 
 
 # Analysis window length (ms) per feature, used for window-center time alignment.
@@ -14,13 +15,14 @@ from vspy.features.get_pitch_snack import get_pitch_snack
 # belongs at frame_center = j + window/2 ms; the central shift below moves them
 # there (the first window/2 ms become NaN), matching VoiceSauce. Praat extractors
 # already report window-CENTER times via get_value_at_time / xs(), so they need
-# no shift (WINDOW_MS = 0). Keeping this here means the alignment is defined once
-# for the whole pipeline instead of being re-implemented inside each module.
+# no shift (WINDOW_MS = 0). SHRP already anchors at window center (same as Praat),
+# so WINDOW_MS = 0.
 WINDOW_MS = {
     "f0_praat": 0,
     "formants_praat": 0,
     "f0_snack": 25,
     "formants_snack": 25,
+    "shrp": 0,
 }
 
 # define dictionary that maps feature name to extractor function
@@ -30,6 +32,7 @@ REGISTRY = {
     "formants_praat": get_formants_praat,
     "f0_snack": get_pitch_snack,
     "formants_snack": get_formants_snack,
+    "shrp": get_shrp,
 }
 
 

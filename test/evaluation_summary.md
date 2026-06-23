@@ -123,32 +123,42 @@ gap was investigated in depth (next section).
 
 ## Deep dive: why correction hurts H2c/H4c/A3c/H2Kc
 
-### Finding 1 — uncorrected harmonics already show a U-shaped error pattern vs. F0
+### Finding 1 — uncorrected harmonics show a bipolar directional error pattern vs. F0
 
 ![harmonic error vs F0](figures/harmonic_error_vs_f0.png)
 
 ![harmonic error by F0 bin](figures/harmonic_error_by_f0_bin.png)
 
-Mean |error| (dB) for H1/H2/H4 by F0 range (`test/figures/harmonic_error_by_f0_bin.csv`):
+Mean error (dB, vspy − VS) for H1/H2/H4 by F0 range (`test/figures/harmonic_error_by_f0_bin.csv`):
 
-| F0 range (Hz) | H1 | H2 | H4 |
+| F0 range (Hz) | H1     | H2     | H4     |
 |---|---|---|---|
-| 0-50    | 4.41  | 3.72  | 15.90 |
-| 50-100  | 4.08  | 5.96  | 9.40  |
-| 100-150 | 1.14  | 1.37  | 2.14  |
-| 150-200 | 1.31  | 1.85  | 2.60  |
-| 200-250 | 2.83  | 4.46  | 6.17  |
-| 250-300 | 6.91  | 6.01  | 12.61 |
-| 300-350 | 10.35 | 9.34  | 18.14 |
-| 350-400 | 6.50  | 16.62 | 18.67 |
-| 400-450 | 6.05  | 9.85  | 7.90  |
-| 450-500 | 9.91  | 16.52 | 14.83 |
+| 0-50    | +1.43  | -0.13  | +15.70 |
+| 50-100  | -1.79  | +4.47  | +8.85  |
+| 100-150 | +0.23  | +0.56  | +0.53  |
+| 150-200 | +0.18  | -0.13  | -0.06  |
+| 200-250 | -0.55  | -3.05  | -4.88  |
+| 250-300 | -6.90  | -1.85  | -11.06 |
+| 300-350 | -10.35 | -9.34  | -18.14 |
+| 350-400 | -3.87  | -16.25 | -18.56 |
+| 400-450 | -4.34  | -9.62  | -7.44  |
+| 450-500 | -9.91  | -16.52 | -14.83 |
 
-Error is smallest in the normal adult range (100-200 Hz) and grows sharply at
-both F0 extremes (<100 Hz vocal fry, and >250 Hz). **H4 is consistently the
-most affected.** This pattern is inherited by both uncorrected and corrected
-features — it's a harmonic-tracking issue (DFT peak-picking near the
-resolution limit at extreme F0), not specific to the Iseli correction.
+Error is near zero in the normal adult range (100-200 Hz, < 1 dB for all three
+harmonics). The pattern is **directional and bipolar** across F0 extremes:
+- **Low F0 (< 100 Hz, vocal fry):** vspy reads *higher* than VS — positive bias,
+  most pronounced for H4 at 0-50 Hz (+15.70 dB).
+- **High F0 (> 200 Hz, falsetto/child):** vspy reads *lower* than VS — negative
+  bias, growing sharply above 250 Hz (H4 at 300-350 Hz: −18.14 dB).
+
+The overall positive `mean_error` reported in `feature_metrics.csv` (H2 = +0.57,
+H4 = +1.68) is a statistical artifact: the large positive errors in the low-F0
+bins numerically outweigh the large negative errors in the high-F0 bins when
+averaged across all frames. The per-bin signed table makes clear there is no
+single consistent directional bias — the direction depends entirely on the F0
+regime. This pattern is inherited by both uncorrected and corrected features —
+it's a harmonic-tracking issue at F0 extremes, not specific to the Iseli
+correction.
 
 ### Finding 2 — the Iseli correction adds extra error near formant resonances
 
@@ -200,7 +210,9 @@ The H2c/H4c/A3c/H2Kc correlation gap relative to their uncorrected
 counterparts is explained by two compounding, largely independent effects:
 
 1. **F0-extreme tracking noise** (Finding 1) — inherited by both corrected and
-   uncorrected features, worst for H4 at F0 < 100 Hz or > 250 Hz.
+   uncorrected features, worst for H4 at F0 < 100 Hz or > 250 Hz. The error
+   is directional: vspy reads higher than VS at low F0 (vocal fry) and lower
+   at high F0 (falsetto), with near-zero bias in the normal 100-200 Hz range.
 2. **Iseli-correction resonance amplification** (Findings 2-3) — adds a
    consistent ~0.3-0.4σ (or ~3 dB for H2c in absolute terms) extra error
    specifically when the harmonic frequency is within ~20 Hz of F1 or F2, due

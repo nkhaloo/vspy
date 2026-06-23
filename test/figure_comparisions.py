@@ -35,13 +35,12 @@ def main():
 
         ax.scatter(sub["f0_snack"], sub[col], s=2, alpha=0.15, color="steelblue")
 
-        # binned mean absolute error, overlaid
+        # binned mean error (signed), overlaid
         sub = sub.copy()
         sub["f0_bin"] = pd.cut(sub["f0_snack"], bins=F0_BINS)
-        binned = sub.groupby("f0_bin", observed=True)[col].apply(lambda x: x.abs().mean())
+        binned = sub.groupby("f0_bin", observed=True)[col].apply(lambda x: x.mean())
         centers = [iv.mid for iv in binned.index]
-        ax.plot(centers, binned.values, color="darkorange", marker="o", label="mean |error|")
-        ax.plot(centers, -binned.values, color="darkorange", linestyle="--", alpha=0.5)
+        ax.plot(centers, binned.values, color="darkorange", marker="o", label="mean error")
 
         ax.axhline(0, color="gray", linewidth=0.8)
         ax.set_xlabel("F0_snack (Hz)")
@@ -63,10 +62,10 @@ def main():
         col = f"err_{feat}"
         sub = merged[["f0_snack", col]].dropna().copy()
         sub["f0_bin"] = pd.cut(sub["f0_snack"], bins=F0_BINS, labels=bin_labels)
-        table[feat] = sub.groupby("f0_bin", observed=True)[col].apply(lambda x: x.abs().mean())
+        table[feat] = sub.groupby("f0_bin", observed=True)[col].apply(lambda x: x.mean())
 
     summary = pd.DataFrame(table)
-    print("\nmean |error| by F0 bin:")
+    print("\nmean error by F0 bin:")
     print(summary)
 
     out_csv = "test/figures/harmonic_error_by_f0_bin.csv"
@@ -81,8 +80,8 @@ def main():
     ax2.set_xticks(x)
     ax2.set_xticklabels(bin_labels, rotation=45)
     ax2.set_xlabel("F0_snack range (Hz)")
-    ax2.set_ylabel("mean |error| (dB)")
-    ax2.set_title("Mean |H1/H2/H4 error| by F0 range")
+    ax2.set_ylabel("mean error (dB)")
+    ax2.set_title("Mean H1/H2/H4 error by F0 range")
     ax2.legend()
     plt.tight_layout()
 
