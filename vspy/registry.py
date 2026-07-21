@@ -7,6 +7,7 @@ from vspy.features.get_formants_snack import get_formants_snack
 from vspy.features.get_formants_praat import get_formants_praat
 from vspy.features.get_pitch_praat import get_pitch_praat
 from vspy.features.get_pitch_snack import get_pitch_snack
+from vspy.features.get_pitch_straight import get_pitch_straight
 from vspy.features.get_shrp import get_shrp
 
 
@@ -23,6 +24,9 @@ WINDOW_MS = {
     "f0_snack": 25,
     "formants_snack": 25,
     "shrp": 0,
+    # STRAIGHT reports each estimate at its own frame time (frame k <-> k ms),
+    # like Praat, so no window-center shift is needed.
+    "f0_straight": 0,
 }
 
 # define dictionary that maps feature name to extractor function
@@ -33,6 +37,7 @@ REGISTRY = {
     "f0_snack": get_pitch_snack,
     "formants_snack": get_formants_snack,
     "shrp": get_shrp,
+    "f0_straight": get_pitch_straight,
 }
 
 

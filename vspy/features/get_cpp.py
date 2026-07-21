@@ -22,10 +22,12 @@ def get_cpp(y, fs, f0, n_periods=3, frame_shift=1.0):
         # current window size
         n0_curr = fs / f0_curr
         # pick the start and end indices of waveform
+        # half periods before center
         ystart = round(ks - n_periods / 2 * n0_curr)
+        # half periods after center
         yend = round(ks + n_periods / 2 * n0_curr)  
 
-        if ystasrt <= 0:
+        if ystart <= 0:
             continue
         if yend > len(y):
             continue
