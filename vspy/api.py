@@ -4,7 +4,7 @@ import tempfile
 import pandas as pd
 import soundfile as sf
 from pathlib import Path
-from scipy.signal import resample_poly
+from scipy.signal import resample_poly, lfilter
 from vspy.io import resolve_paths, read_wav
 from vspy import registry
 from vspy.align.textgrid import parse_textgrid, label_frames
@@ -21,11 +21,35 @@ from vspy.features.get_energy import get_energy
 
 TARGET_FS = 16000
 
+# VoiceSauce vs_Initialize.m: vars.O_smoothwinsize = 20.  func_buildMData.m
+# applies `filter(ones(smoothwin,1)/smoothwin, 1, x)` -- a *causal* moving
+# average -- to these measures on the way out to text/display.  F0, formants,
+# bandwidths, Energy, SHR, epoch and SoE are deliberately left unsmoothed.
+SMOOTH_WIN = 20
+SMOOTHED_COLUMNS = (
+    'H1', 'H2', 'H4', 'A1', 'A2', 'A3', 'H2K', 'H5K',
+    'H1c', 'H2c', 'H4c', 'A1c', 'A2c', 'A3c', 'H2Kc',
+    'H1H2', 'H2H4', 'H1A1', 'H1A2', 'H1A3', 'H4H2K', 'H2KH5K',
+    'CPP', 'HNR05', 'HNR15', 'HNR25', 'HNR35',
+)
+
+
 def _resample(y, fs, target=TARGET_FS):
     if fs == target:
         return y, fs
     g = math.gcd(int(fs), target)
     return resample_poly(y, target // g, int(fs) // g), target
+
+
+def _smooth(df, smoothwin=SMOOTH_WIN):
+    """Apply VoiceSauce's output-stage moving-average filter, in place."""
+    if not smoothwin:
+        return df
+    b = [1.0 / smoothwin] * smoothwin
+    for col in SMOOTHED_COLUMNS:
+        if col in df.columns:
+            df[col] = lfilter(b, 1.0, df[col].to_numpy(dtype=float))
+    return df
 
 
 #define function, default f0 = praat
@@ -47,6 +71,9 @@ def vspy(source, features=None, frameshift_ms=1, output_csv="output.csv",
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
             tmp_path = Path(tmp.name)
         sf.write(tmp_path, y_16k, fs_16k, subtype='PCM_16')
+        # VoiceSauce re-reads the resampled file it just wrote, so every
+        # measure sees the 16-bit quantised signal. Match that.
+        y_16k, fs_16k = read_wav(tmp_path)
 
         try:
             results = registry.run(features, tmp_path, frameshift_ms, datalen)
@@ -101,6 +128,9 @@ def vspy(source, features=None, frameshift_ms=1, output_csv="output.csv",
             df['HNR15'] = HNR15
             df['HNR25'] = HNR25
             df['HNR35'] = HNR35
+
+        # VoiceSauce smooths on output, per file, before any textgrid slicing.
+        _smooth(df)
 
         df["filename"] = path.name
 

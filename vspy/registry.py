@@ -11,21 +11,37 @@ from vspy.features.get_pitch_straight import get_pitch_straight
 from vspy.features.get_shrp import get_shrp
 
 
-# Analysis window length (ms) per feature, used for window-center time alignment.
-# Snack extractors emit values indexed by frame START, so each value really
-# belongs at frame_center = j + window/2 ms; the central shift below moves them
-# there (the first window/2 ms become NaN), matching VoiceSauce. Praat extractors
-# already report window-CENTER times via get_value_at_time / xs(), so they need
-# no shift (WINDOW_MS = 0). SHRP already anchors at window center (same as Praat),
-# so WINDOW_MS = 0.
-WINDOW_MS = {
+# Per-feature output shift, in frames.
+#
+# Snack emits one value per analysis frame, indexed by frame START.  VoiceSauce
+# realigns by prepending NaNs (vs_ParameterEstimation.m):
+#
+#     sF0 = [zeros(floor(windowsize/frameshift/2),1)*NaN; sF0];
+#
+# and then vs_OutputToText.m prints element `s` of that MATLAB (1-based) vector
+# at t_ms = s.  So VoiceSauce's t_ms = i holds
+#
+#     snack_raw(i - floor(ws/fs/2))     -- 1-based
+#   = snack frame  i - floor(ws/fs/2) - 1  -- 0-based
+#
+# vspy rows are 0-based with t_ms == row index, so the shift is
+# floor(ws/fs/2) + 1 = 13 frames for a 25 ms window at a 1 ms hop.  The extra
+# +1 is the 1-based/0-based fencepost, not a window-centre term: dropping it
+# put every snack track one frame early.  Verified empirically -- with the +1
+# our LPC poles land within 0.001 Hz of the reference sF1-sF4, without it they
+# sit ~4 Hz off.
+#
+# Praat extractors report window-CENTRE times via get_value_at_time / xs(), and
+# SHRP anchors at the window centre itself (its own +2 offset is applied inside
+# get_shrp), so both need no shift here.
+OFFSET_FRAMES = {
     "f0_praat": 0,
     "formants_praat": 0,
-    "f0_snack": 25,
-    "formants_snack": 25,
+    "f0_snack": 13,
+    "formants_snack": 13,
     "shrp": 0,
     # STRAIGHT reports each estimate at its own frame time (frame k <-> k ms),
-    # like Praat, so no window-center shift is needed.
+    # like Praat, so no shift is needed.
     "f0_straight": 0,
 }
 
@@ -65,8 +81,7 @@ def run(features, wavfile, frameshift_ms, datalen):
     for name in features:
         extractor = REGISTRY[name]
         result = extractor(wavfile, frameshift_ms=frameshift_ms, datalen=datalen)
-        # central window-center alignment (single source of truth for all features)
-        offset = int(WINDOW_MS.get(name, 0) / frameshift_ms / 2)
-        results[name] = _center_align(result, offset)
+        # central time alignment (single source of truth for all features)
+        results[name] = _center_align(result, OFFSET_FRAMES.get(name, 0))
     #return a dictionary of arrays that api.py will use to build df
     return results

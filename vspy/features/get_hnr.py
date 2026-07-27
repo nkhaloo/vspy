@@ -1,12 +1,22 @@
+"""Harmonics-to-noise ratio -- port of VoiceSauce func_GetHNR.m (de Krom 1993).
+
+Same frame-indexing convention as get_cpp: vspy row k corresponds to MATLAB
+index k, i.e. the frame centred at `ks = round(k * sampleshift)`.
+"""
+
 import numpy as np
 
+from vspy.features._matlab import mround_int
 
-def get_hnr(y, Fs, F0, n_periods=3, frameshift_ms=1.0):
-    """
-    Harmonics-to-noise ratio via the de Krom (1993) cepstrum-based method.
-    Port of VoiceSauce func_GetHNR.m / getHNR.m.
-    Returns four arrays: HNR05, HNR15, HNR25, HNR35 (dB, cutoffs at 500/1500/2500/3500 Hz).
-    """
+# VoiceSauce vs_Initialize.m: vars.Nperiods_EC = 5.
+NPERIODS_EC = 5
+
+
+def get_hnr(y, Fs, F0, n_periods=NPERIODS_EC, frameshift_ms=1.0):
+    """Returns HNR05, HNR15, HNR25, HNR35 (dB; cutoffs 500/1500/2500/3500 Hz)."""
+    y = np.asarray(y, dtype=float)
+    F0 = np.asarray(F0, dtype=float)
+
     n_frames = len(F0)
     sampleshift = Fs / 1000.0 * frameshift_ms
 
@@ -16,27 +26,25 @@ def get_hnr(y, Fs, F0, n_periods=3, frameshift_ms=1.0):
     HNR35 = np.full(n_frames, np.nan)
 
     for k in range(n_frames):
-        ks = round((k + 1) * sampleshift)
-
+        ks = mround_int(k * sampleshift)
         if ks <= 0 or ks > len(y):
             continue
 
         f0_curr = F0[k]
-        if np.isnan(f0_curr) or f0_curr == 0:
+        if not np.isfinite(f0_curr) or f0_curr <= 0:
             continue
 
-        N0_curr = Fs / f0_curr
+        N0_curr = 1.0 / f0_curr * Fs
 
-        ystart = round(ks - n_periods / 2 * N0_curr)
-        yend   = round(ks + n_periods / 2 * N0_curr) - 1
-        if (yend - ystart + 1) % 2 == 0:
+        ystart = mround_int(ks - n_periods / 2 * N0_curr)
+        yend = mround_int(ks + n_periods / 2 * N0_curr) - 1
+        if (yend - ystart + 1) % 2 == 0:  # length is even, make it odd
             yend -= 1
 
         if ystart <= 0 or yend > len(y):
             continue
 
-        yseg = y[ystart - 1:yend]  
-        hnr = _hnr_segment(yseg, f0_curr, Fs)
+        hnr = _hnr_segment(y[ystart - 1:yend], f0_curr, Fs)
 
         HNR05[k] = hnr[0]
         HNR15[k] = hnr[1]
@@ -47,64 +55,74 @@ def get_hnr(y, Fs, F0, n_periods=3, frameshift_ms=1.0):
 
 
 def _hnr_segment(y, F0, Fs, n_freqs=(500, 1500, 2500, 3500)):
-    N = len(y)
-    N0 = round(Fs / F0)
-    N0_delta = round(N0 * 0.1)
+    """Port of the nested getHNR() in func_GetHNR.m."""
+    NBins = len(y)
+    N0 = mround_int(Fs / F0)
+    N0_delta = mround_int(N0 * 0.1)  # search 10% either side
 
-    y = y * np.hamming(N)
-    Y = np.fft.fft(y, N)
-    aY = np.log10(np.abs(Y) + 1e-30)
+    y = y * np.hamming(NBins)
+    Y = np.fft.fft(y, NBins)
+    with np.errstate(divide="ignore"):
+        aY = np.log10(np.abs(Y))
     ay = np.fft.ifft(aY).real
-    n_rahmonics = N // 2 // N0
+
+    # --- lifter out the rahmonic peaks
+    n_rahmonics = NBins // 2 // N0 if N0 > 0 else 0
     for k in range(1, n_rahmonics + 1):
-        seg_start = max(k * N0 - N0_delta - 1, 0)
-        seg_end   = min(k * N0 + N0_delta, N)
+        seg_start = k * N0 - N0_delta - 1  # 0-based
+        seg_end = k * N0 + N0_delta        # exclusive
+        if seg_start < 0 or seg_end > len(ay):
+            continue
         ayseg = ay[seg_start:seg_end]
-        if len(ayseg) < 3:
+        if len(ayseg) < 2:
             continue
 
-        peak_idx = int(np.argmax(np.abs(ayseg)))
-        s = np.sign(np.diff(ayseg))
-        if peak_idx > 0:
-            d = np.where(s[peak_idx - 1::-1] != 1)[0]
-            l_inx = (peak_idx - d[0]) if len(d) else 0
-        else:
-            l_inx = 0
-        if peak_idx < len(s):
-            d = np.where(s[peak_idx + 1:] == 1)[0]
-            r_inx = (peak_idx + d[0] + 1) if len(d) else len(ayseg) - 1
-        else:
-            r_inx = len(ayseg) - 1
+        inx = int(np.argmax(np.abs(ayseg)))  # 0-based peak in ayseg
+        s_ayseg = np.sign(np.diff(ayseg))
 
-        ay[seg_start + l_inx : seg_start + r_inx + 1] = 0
+        # First first-derivative sign change either side of the peak.  MATLAB
+        # compares against sign(inx), which is always +1 for a valid index.
+        # If find() comes up empty the index is [] and the ay(l:r)=0
+        # assignment silently does nothing -- so we skip the liftering too.
+        left = np.flatnonzero(s_ayseg[inx - 1::-1] != 1) if inx > 0 else np.array([], dtype=int)
+        right = np.flatnonzero(s_ayseg[inx + 1:] == 1)
+        if left.size == 0 or right.size == 0:
+            continue
 
-   
-   
-    mid_l = N // 2 + 1 
-    ay[mid_l:] = ay[mid_l - 1:0:-1]
+        l_inx = inx - int(left[0])
+        r_inx = inx + int(right[0]) + 1
+        ay[seg_start + l_inx:seg_start + r_inx + 1] = 0.0
 
-   
-    N_spec = np.fft.fft(ay).real
-    Ha = aY - N_spec
+    # --- put the signal back together (mirror the first half)
+    midL = mround_int(NBins / 2.0) + 1              # 1-based
+    ay[midL - 1:] = ay[midL - 2:midL - 2 - (len(ay) - midL) - 1:-1]
 
-    
-    Hdelta = F0 / Fs * N
-    stop = N // 2 + 1  
-    f = Hdelta + 1e-4
-    while f <= stop:
-        fstart = int(np.ceil(f - Hdelta))       
-        fend   = int(f + 0.5)                    
-        seg = Ha[fstart - 1:fend]
-        if len(seg) > 0:
-            N_spec[fstart - 1:fend] -= abs(float(np.min(seg)))
-        f += Hdelta
+    Nap = np.fft.fft(ay).real
+    N_spec = Nap.copy()
+    Ha = aY - Nap  # approximated harmonic spectrum
 
-   
+    # --- baseline corrections
+    Hdelta = F0 / Fs * NBins
+    stop = mround_int(NBins / 2.0)
+    i = 1
+    while True:
+        f = Hdelta * i + 0.0001
+        if f > stop:
+            break
+        fstart = int(np.ceil(f - Hdelta))          # 1-based
+        fend = mround_int(f)                       # 1-based, inclusive
+        if fstart <= fend:
+            seg = Ha[fstart - 1:fend]
+            if seg.size:
+                N_spec[fstart - 1:fend] -= abs(float(np.min(seg)))
+        i += 1
+
+    # --- average HNR up to each cut-off frequency
     H_spec = aY - N_spec
     hnr = np.zeros(len(n_freqs))
-    for i, freq in enumerate(n_freqs):
-        Ef = int(freq / Fs * N + 0.5)  
+    for j, freq in enumerate(n_freqs):
+        Ef = mround_int(freq / Fs * NBins)
         if Ef > 0:
-            hnr[i] = 20 * np.mean(H_spec[:Ef]) - 20 * np.mean(N_spec[:Ef])
+            hnr[j] = 20 * np.mean(H_spec[:Ef]) - 20 * np.mean(N_spec[:Ef])
 
     return hnr

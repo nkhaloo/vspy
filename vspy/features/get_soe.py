@@ -3,6 +3,8 @@ import numpy as np
 import pandas as pd
 from scipy.signal import lfilter, resample_poly
 
+from vspy.features._matlab import mround_int
+
 _ZFF_FS = 10_000  
 
 # estimates a local moving-avergae trand and subracts it from the signal 
@@ -13,14 +15,16 @@ def _remove_trend(x, N):
         return x.copy()
     width = 2 * N + 1
     L = len(x)
-    # moving average filter 
+    # moving average filter
     c_causal = lfilter(np.ones(width) / width, 1.0, x)
 
     # special trend for edges of sample
-    cb_raw = np.cumsum(x[: width - 2])         
-    cbegin = cb_raw[::2] / np.arange(1, 2 * N, 2, dtype=float)  
-    ce_raw = np.cumsum(x[L - 1 : L - 2 * N - 1 : -1]) 
-    cend = ce_raw[-1::-2] / np.arange(2 * N - 1, 0, -2, dtype=float)  
+    # MATLAB: cbegin = cumsum(x(1:width-2)); cend = cumsum(x(L:-1:L-width+3))
+    # Both cumsums run over width-2 == 2N-1 samples.
+    cb_raw = np.cumsum(x[: width - 2])
+    cbegin = cb_raw[::2] / np.arange(1, 2 * N, 2, dtype=float)
+    ce_raw = np.cumsum(x[L - width + 2:][::-1])
+    cend = ce_raw[-1::-2] / np.arange(2 * N - 1, 0, -2, dtype=float)
 
     trend = np.concatenate([cbegin, c_causal[width - 1 :], cend])
     return x - trend
@@ -123,14 +127,17 @@ def get_soe(
     epoch_out = np.zeros(data_len, dtype=bool)
     soe_out = np.full(data_len, np.nan)
 
-    epoch_samples = np.where(tf)[0] 
+    epoch_samples = np.where(tf)[0]
     step_sec = frameshift_ms / 1000.0
     for smp_py in epoch_samples:
-        t_smp = (smp_py + 1) / Fs
-        frm_matlab = round(t_smp / step_sec)
-        frm_py = frm_matlab - 1
-        if 0 <= frm_py < data_len:
-            epoch_out[frm_py] = True
-            soe_out[frm_py] = neg_deriv[smp_py]
+        # MATLAB: frm_idx = round(smpIdx/Fs/(frameshift/1000)) with smpIdx
+        # 1-based.  VoiceSauce prints data(s) at t_ms = s, and vspy row i is
+        # t_ms = i, so the MATLAB index *is* the vspy row index.
+        frm_idx = mround_int((smp_py + 1) / Fs / step_sec)
+        if frm_idx < 1 or frm_idx > data_len:
+            continue
+        if frm_idx < data_len:
+            epoch_out[frm_idx] = True
+            soe_out[frm_idx] = neg_deriv[smp_py]
 
     return pd.DataFrame({"epoch": epoch_out, "soe": soe_out})

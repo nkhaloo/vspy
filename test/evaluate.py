@@ -59,6 +59,15 @@ FEATURE_PAIRS = [
     ("H1A3",      "H1A3c",  "H1A3"),
     ("H4H2K",     "H42Kc",  "H4H2K"),
     ("H2KH5K",    "H2KH5Kc","H2KH5K"),
+    # voice-quality / periodicity measures
+    ("CPP",       "CPP",    "CPP"),
+    ("Energy",    "Energy", "Energy"),
+    ("HNR05",     "HNR05",  "HNR05"),
+    ("HNR15",     "HNR15",  "HNR15"),
+    ("HNR25",     "HNR25",  "HNR25"),
+    ("HNR35",     "HNR35",  "HNR35"),
+    ("SoE",       "soe",    "SoE"),
+    ("shr",       "SHR",    "SHR"),
 ]
 
 F0_PAIRS = [
