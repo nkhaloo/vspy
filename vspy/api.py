@@ -17,6 +17,7 @@ from vspy.features.spectral_tilts import compute_tilts
 from vspy.features.get_cpp import get_cpp
 from vspy.features.get_soe import get_soe
 from vspy.features.get_hnr import get_hnr
+from vspy.features.get_energy import get_energy
 
 TARGET_FS = 16000
 
@@ -88,6 +89,8 @@ def vspy(source, features=None, frameshift_ms=1, output_csv="output.csv",
                 df[col] = arr
 
             df['CPP'] = get_cpp(y_16k, fs_16k, F0, frame_shift=frameshift_ms)
+
+            df['Energy'] = get_energy(y_16k, fs_16k, F0, frame_shift=frameshift_ms)
 
             soe_df = get_soe(y_16k, fs_16k, F0, frameshift_ms=frameshift_ms)
             df['epoch'] = soe_df['epoch'].values
