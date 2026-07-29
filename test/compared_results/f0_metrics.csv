@@ -1,4 +1,0 @@
-feature,pearson_r,ccc,mean_error,median_error,mae,coverage,n_valid,n_total,n_finite,n_outliers_dropped,n_outliers_vspy,n_outliers_vs,vde,gpe,fpe_mean,fpe_std,n_both_voiced
-f0_snack,1.0,1.0,0.0,0.0,0.0,0.9387,65049,69298,65049,0,0,0,0.0,0.0,0.0,0.0,32198
-f0_praat,0.9964,0.9964,-0.026,-0.013,0.398,0.3941,27311,69298,36040,8729,8686,8607,0.01,0.0027,0.145,6.564,36040
-f0_straight,0.8572,0.8567,-0.464,-0.131,2.812,0.4097,28388,69298,33140,4752,4348,2634,0.5218,0.096,-7.758,31.298,33140

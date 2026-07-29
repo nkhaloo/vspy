@@ -1,0 +1,10 @@
+# Test corpus -- ~1.7 GB of audio downloaded from the UCLA voice project.
+# Not tracked: it is reproducible byte-for-byte with
+#   python test/download_ucla_voice_data.py
+test/wav/
+test/textgrid/
+
+# macOS / Python noise
+.DS_Store
+__pycache__/
+*.py[cod]
