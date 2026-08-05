@@ -1,4 +1,4 @@
-#vs() call
+
 import math
 import tempfile
 import pandas as pd
@@ -9,7 +9,7 @@ from vspy.io import resolve_paths, read_wav
 from vspy import registry
 from vspy.align.textgrid import parse_textgrid, label_frames
 
-# harmonic functions that work on a wav array
+
 from vspy.features.get_harmonics import get_harmonics
 from vspy.features.get_formant_amplitudes import get_formant_amplitudes
 from vspy.features.get_2k5k import get_2k5k
@@ -51,7 +51,7 @@ def _smooth(df, smoothwin=SMOOTH_WIN):
     return df
 
 
-#define function, default f0 = praat
+
 def vspy(source, features=None, frameshift_ms=1, output_csv="output.csv",
          textgrid_dir=None, tier=None,
          f0_source='praat', formant_source='praat'):
@@ -62,11 +62,11 @@ def vspy(source, features=None, frameshift_ms=1, output_csv="output.csv",
     all_frames = []
     for path in paths:
         y, fs = read_wav(path)
-        # resample everything to 16kHz once, matching VoiceSauce behaviour
+
         y_16k, fs_16k = _resample(y, fs)
         datalen = int(len(y_16k) / fs_16k * 1000 / frameshift_ms)
 
-        # write temp 16kHz wav so Praat/Snack extractors use the same audio
+
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
             tmp_path = Path(tmp.name)
         sf.write(tmp_path, y_16k, fs_16k, subtype='PCM_16')

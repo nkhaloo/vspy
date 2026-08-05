@@ -1,8 +1,8 @@
-import numpy as np 
+import numpy as np
 
-# define textgrid parsing function 
 
-# reads file, finds tier by name, and return a list of (start_ms, end_ms, and label)
+
+
 def parse_textgrid(tg_path, tier_name):
     raw = open(tg_path, "rb").read()
     enc = "utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8"
@@ -32,13 +32,13 @@ def parse_textgrid(tg_path, tier_name):
                 ))
             current = {}
         elif in_tier and line.startswith("item ["):
-            break  # hit the next tier, stop
+            break
 
     return intervals
 
 
-# labeling function that returns a string of length datalen
-# maps labels onto each frame, returns 'none' if there is no label
+
+
 def label_frames(intervals, datalen):
     labels = np.full(datalen, None, dtype=object)
     for start_ms, end_ms, label in intervals:

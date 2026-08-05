@@ -1,5 +1,5 @@
-# registry for feature names and extraction functions
-# used by api call to map features to their functions and call them
+
+
 import numpy as np
 import pandas as pd
 
@@ -41,8 +41,8 @@ OFFSET_FRAMES = {
     "shrp": 0,
 }
 
-# define dictionary that maps feature name to extractor function
-# uses string created by feature_key in api.py
+
+
 REGISTRY = {
     "f0_praat": get_pitch_praat,
     "formants_praat": get_formants_praat,
@@ -53,9 +53,6 @@ REGISTRY = {
 
 
 def _center_align(result, offset):
-    """Shift frame-indexed output down by `offset` rows (prepend NaN, keep
-    length), so frame-start-indexed values land at their window center. Handles
-    both DataFrames (formants) and plain arrays (f0). offset == 0 is a no-op."""
     if offset <= 0:
         return result
     if isinstance(result, pd.DataFrame):
@@ -70,7 +67,7 @@ def _center_align(result, offset):
     return shifted
 
 
-# define a function that accepts feature names, wavfile, and shared args and calls each function
+
 def run(features, wavfile, frameshift_ms, datalen):
     results = {}
     for name in features:
@@ -78,5 +75,5 @@ def run(features, wavfile, frameshift_ms, datalen):
         result = extractor(wavfile, frameshift_ms=frameshift_ms, datalen=datalen)
 
         results[name] = _center_align(result, OFFSET_FRAMES.get(name, 0))
-    #return a dictionary of arrays that api.py will use to build df
+
     return results

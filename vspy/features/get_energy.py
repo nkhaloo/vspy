@@ -25,16 +25,16 @@ def get_energy(y, fs, f0, frame_shift=1.0, n_periods=NPERIODS_EC):
         if not np.isfinite(f0_curr) or f0_curr <= 0:
             continue
 
-        N0 = fs / f0_curr  # period in samples
+        N0 = fs / f0_curr
 
-        # ystart/yend are 1-based sample indices (matching MATLAB)
+
         ystart = mround_int(ks - n_periods / 2 * N0)
         yend   = mround_int(ks + n_periods / 2 * N0) - 1
 
         if ystart <= 0 or yend > len(y):
             continue
 
-        # convert to 0-based Python slice
+
         yseg = y[ystart - 1 : yend]
         energy[k] = np.sum(yseg ** 2)
 

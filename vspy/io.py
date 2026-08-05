@@ -1,4 +1,4 @@
-# wav loading
+
 
 import io
 import soundfile as sf
@@ -17,10 +17,10 @@ def read_wav(wavfile, channel=0):
     else:
         y, fs = sf.read(wavfile, dtype="float64", always_2d=True)
     return y[:, channel], fs
-#y is used later as what the functions extract features from 
-#y and fs are also used to cacluate datalen in api.py (datalen = number of frames in the audio file)
 
-#helper that normalizes a directory of wav files into a single list of wav paths
+
+
+
 def resolve_paths(source):
     if isinstance(source, list):
         return [Path(p) for p in source]

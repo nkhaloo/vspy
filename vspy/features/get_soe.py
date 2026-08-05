@@ -7,8 +7,8 @@ from vspy.features._matlab import mround_int
 
 _ZFF_FS = 10_000
 
-# estimates a local moving-avergae trand and subracts it from the signal
-# centers oscillations of waveform around zero
+
+
 def _remove_trend(x, N):
     N = int(round(N))
     if N <= 0:
@@ -18,7 +18,7 @@ def _remove_trend(x, N):
 
     c_causal = lfilter(np.ones(width) / width, 1.0, x)
 
-    # special trend for edges of sample
+
 
 
     cb_raw = np.cumsum(x[: width - 2])
@@ -29,47 +29,47 @@ def _remove_trend(x, N):
     trend = np.concatenate([cbegin, c_causal[width - 1 :], cend])
     return x - trend
 
-# zero frequency filter
+
 def _zff(x, n0):
     alpha = 0.999
-    # shift waveform so that the first sample is 0
+
     x = x - x[0]
-    # first pass filter
+
     s = lfilter([1.0, -1.0], [1.0], x)
     half_win = round(n0 / 1.5)
     u = lfilter([1.0], [1.0, -2 * alpha, alpha ** 2], s)
     v = _remove_trend(u, half_win)
-    # second pass filter
+
     y = lfilter([1.0], [1.0, -2 * alpha, alpha ** 2], v)
-    # final ZFF waveform
+
     z = _remove_trend(y, half_win)
     return z
 
-# calculates local derivative of ZFF wavefom
-# returns negative derivative at each downward 0 crossing
+
+
 def _htk_delta(x, D=2):
 
     N = len(x)
     dx = np.zeros(N)
-    # computes derivative for samples near zero crossing on both sides and averages
+
     denom = 2.0 * sum(theta ** 2 for theta in range(1, D + 1))
-    # which slope formula to use based on where nf is in the signal
+
     for nf in range(N):
-        # middle of signal: look forward and backward
+
         if nf >= D and nf < N - D:
             numer = sum(theta * (x[nf + theta] - x[nf - theta])
                         for theta in range(1, D + 1))
             dx[nf] = numer / denom
-        # beginning of signal: only look forward
+
         elif nf < D and nf + 1 < N:
             dx[nf] = x[nf + 1] - x[nf]
-        # end of signal: only look backward
+
         elif nf >= N - D and nf > 0:
             dx[nf] = x[nf] - x[nf - 1]
     return dx
 
 
-# main function
+
 def get_soe(
     y: np.ndarray,
     fs: int,

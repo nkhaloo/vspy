@@ -1,8 +1,8 @@
-import numpy as np 
+import numpy as np
 import parselmouth
 import pandas as pd
 
-# define function with default hyperparamters 
+
 def get_formants_praat(
     wavfile,
     frameshift_ms=1,
@@ -10,16 +10,16 @@ def get_formants_praat(
     num_formants=4,
     max_formant_freq=6000,
     window_length=0.025,
-    #high frequency boost parameter - flattens spectral tilt, makes formant peaks easier to see
+
     pre_emphasis_from=50.0
 ):
-    #load soundfile into parselmouth 
+
     snd = parselmouth.Sound(str(wavfile))
-    #Praat uses s not ms, so we convert framshift to s
+
     frameshift_s = frameshift_ms / 1000
-    #main praat call: for each frame, fit an LPC model to spectrum 
-    #extracts poles (numerical approximations of sharp peaks in freqeuncy)
-    # H(z) = 1/A(z): pole = where denominator hits 0 
+
+
+
     formant = snd.to_formant_burg(
             time_step=frameshift_s,
             max_number_of_formants = num_formants,
@@ -28,7 +28,7 @@ def get_formants_praat(
             pre_emphasis_from = pre_emphasis_from
         )
 
-    #create output arrays filled initially with NaN
+
     F1 = np.full(datalen, np.nan)
     F2 = np.full(datalen, np.nan)
     F3 = np.full(datalen, np.nan)
@@ -49,9 +49,9 @@ def get_formants_praat(
         B3[i] = formant.get_bandwidth_at_time(3, t)
         B4[i] = formant.get_bandwidth_at_time(4, t)
 
-    #define t_ms 
-    t_ms = np.arange(datalen) * frameshift_ms    
-    #build df: t_ms = integer ms timestamps starting at 0. 
+
+    t_ms = np.arange(datalen) * frameshift_ms
+
     return pd.DataFrame({
         "t_ms": t_ms,
         "F1_praat": F1,

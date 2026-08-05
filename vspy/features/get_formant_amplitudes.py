@@ -1,16 +1,16 @@
-# generate formant aplitudes (A1, A2, A3)
+
 import numpy as np
 
-# main function
+
 def get_formant_amplitudes(y, Fs, F0, F1, F2, F3, n_periods=3):
     n_frames = len(F0)
-    #empty arrays 
+
     A1 = np.full(n_frames, np.nan)
     A2 = np.full(n_frames, np.nan)
     A3 = np.full(n_frames, np.nan)
 
-    # uses 8192 point FFT 
-    # calculates DFT at the multiple of Fs/N that's closest to the formant
+
+
     def fft_amplitude(segment, Fx):
         X = np.fft.fft(segment, 8192)
         X_db = 20 * np.log10(np.abs(X[:4096]) + 1e-10)
@@ -19,7 +19,7 @@ def get_formant_amplitudes(y, Fs, F0, F1, F2, F3, n_periods=3):
         hi = min(4095, round((Fx * 1.1) / fstep))
         return np.max(X_db[lo:hi+1])
 
-    # frame loop
+
     sampleshift = Fs / 1000
 
     for k in range(n_frames):

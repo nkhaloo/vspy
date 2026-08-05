@@ -13,7 +13,7 @@ CEILING = 1250.0
 FRAME_PRECISION = 1
 
 
-# take the spectrum for 1 frame and return log_spec vector
+
 def _get_log_spectrum(segment, fftlen, limit_idx, logf, interp_logf):
     spec = np.fft.rfft(segment, n=fftlen)
     amp_full = np.abs(spec)
@@ -26,7 +26,7 @@ def _get_log_spectrum(segment, fftlen, limit_idx, logf, interp_logf):
 
 
 
-# a competing peak at double that frequency
+
 def _twomax(x, lowerbound, upperbound, unitlen):
     region = x[lowerbound : upperbound + 1]
     if region.size == 0 or region.max() <= 0:
@@ -49,7 +49,7 @@ def _twomax(x, lowerbound, upperbound, unitlen):
     return np.array([mag1]), np.array([idx1])
 
 
-# computes distance matrix across all candidate F0, returns peaks, calculates SHR
+
 def _compute_shr(log_spectrum, min_bin, N, shift_units, interp_len,
                  lowerbound, upperbound, shr_threshold):
     shshift = np.zeros((N, interp_len))
@@ -81,7 +81,7 @@ def _compute_shr(log_spectrum, min_bin, N, shift_units, interp_len,
     return peak_index, shr
 
 
-# main function
+
 def get_shrp(
     wavfile,
     frameshift_ms: float = 1.0,
@@ -100,13 +100,13 @@ def get_shrp(
     peak = np.max(np.abs(y))
     if peak > 0:
         y = y / peak
-    # set interpolation setting to choose FFT length larger than window size
+
     interpolation_depth = 0.5
-    # determine how many rows the matrix will have
+
     N = int(np.floor(ceiling / f0min))
     N -= N % 2
     N *= 4
-    # s --> ms for samples
+
     segmentlen = mround_int(windowsize_ms * fs / 1000)
     inc = mround_int(frameshift_ms * fs / 1000)
     total_len = len(y)
@@ -116,7 +116,7 @@ def get_shrp(
         return pd.DataFrame({"f0": np.full(n, np.nan), "shr": np.full(n, np.nan)})
 
     f0_time_ms = (np.arange(nf) * frameshift_ms) + windowsize_ms / 2.0
-    # FFT length
+
     fftlen = 1
     while fftlen < segmentlen * (1 + interpolation_depth):
         fftlen *= 2
@@ -148,7 +148,7 @@ def get_shrp(
     f0_raw = np.zeros(nf)
     shr_raw = np.zeros(nf)
     cur_f0 = 0.0
-    # main frame loop
+
     for n in range(nf):
 
         s = curpos[n] - mround_int(segmentlen / 2.0) - 1
