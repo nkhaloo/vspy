@@ -1,12 +1,12 @@
 """
-1. Load audio 
+1. Load audio
 2. Preprocess it: Downsample and highpass filter
 3. Cut into overlapping frames
-4. Run LPC on each frame 
-5. Convert LPC roots into resonances and bandwidths 
-6. Generate multiple formant and bandwidth candidates per frame 
-7. Compute costs per candidate 
-8. Find best path through frames that minimizes costs 
+4. Run LPC on each frame
+5. Convert LPC roots into resonances and bandwidths
+6. Generate multiple formant and bandwidth candidates per frame
+7. Compute costs per candidate
+8. Find best path through frames that minimizes costs
 9. Return values in a DataFrame
 
 """
@@ -23,11 +23,11 @@ MAXCAN      = 300   # Maximum number of candidate pole-to-formant mappings per f
 MAXFORMANTS = 7     # Maximum number of formant slots (F1–F7)
 MAXORDER    = 30    # Maximum LPC order
 
-MISSING  = 1.0      # Penalty (in equivalent delta-Hz) when a formant has no pole assigned 
+MISSING  = 1.0      # Penalty (in equivalent delta-Hz) when a formant has no pole assigned
                     # basically a increases penalty for deviation from the nominal freq
-                     
+
 NOBAND   = 1000.0   # Penalty (in equivalent Hz bandwidth) for a missing formant;
-                    # roughly one "formant slot" per 1000 Hz of the spectrum 
+                    # roughly one "formant slot" per 1000 Hz of the spectrum
                     # basically gicing you a penalty as if you have a 1000 hz bandwidth
 
 DF_FACT  = 20.0     # Weight on frame-to-frame frequency jump cost;
@@ -39,7 +39,7 @@ DFN_FACT = 0.3      # Weight on deviation from nominal formant frequencies (fnom
 BAND_FACT = 0.002   # Cost per Hz of pole bandwidth; prefers narrower, more
                     # resonance-like poles
 
-F_BIAS   = 0.000    # Bias toward low-frequency poles 
+F_BIAS   = 0.000    # Bias toward low-frequency poles
 
 F_MERGE  = 2000.0   # Penalty for mapping F1 and F2 to the same pole frequency
 
@@ -63,24 +63,24 @@ domerge = True  # flag controlling whether f1/f2 merge penalty is applied
 # to True to re-run the A/B. The lbpoly port is kept for reference/faithfulness.
 USE_LBPOLY = False
 
-# Snack's lpcbsa() dithers each sample with `.016 * frand() - .008`, where
-# frand() wraps C `rand()`. Snack never calls srand(), so rand() starts from the
-# default seed 1 and the whole run is reproducible; VoiceSauce spawns one fresh
-# `wish` process per file, so the sequence restarts per file. We cannot
-# reproduce a particular libc's rand() stream, but we can and must reproduce the
-# determinism: a fresh, fixed-seed generator per file. Without this the tracker
-# gives different answers on repeated runs of the same input.
+
+
+
+
+
+
+
 DITHER_SEED = 1
 
-# Snack's downsample.c / highpass() use a 7-digit PI literal, not M_PI. It
-# perturbs the quantised FIR taps by well under an LSB, but it is free to match.
+
+
 SNACK_PI = 3.1415927
 
 # main function
 def get_formants(signal: np.ndarray, samprate: float, frame_int: float,
                  lpc_ord: int, nform: int = 4,
                  ds_freq: float = 10000.0) -> tuple[np.ndarray, np.ndarray]:
-    # checks to see if you have enough LPC coef's to surrport # of formants 
+    # checks to see if you have enough LPC coef's to surrport # of formants
     if nform > (lpc_ord - 4) // 2:
         raise ValueError(
             f"nform ({nform}) must be <= (lpc_ord - 4) // 2 = {(lpc_ord - 4) // 2}"
@@ -89,14 +89,14 @@ def get_formants(signal: np.ndarray, samprate: float, frame_int: float,
         raise ValueError(f"nform must be <= {MAXFORMANTS}")
     sig, effective_rate = preprocess(signal, samprate, ds_freq)
     poles = lpc_poles(sig, effective_rate, frame_int, lpc_ord)
-    # jkFormant.c lpc_poles() returns the pole set as a Sound built with
-    #     lp = Snack_NewSound((int)(1.0/frame_int), LIN16, lpc_ord);
-    # so the `ps->samprate` that dpform() reads is the FRAME rate (1000 at a
-    # 1 ms hop), not the audio sample rate -- hence the comment in dpform,
-    # "keep dffact scaled to frame rate". All three DP weights derive from it,
-    # so passing the audio rate makes bfact/ffact 10x too small and dffact 10x
-    # too large, i.e. bandwidth and nominal-frequency costs 100x too weak
-    # relative to the frame-to-frame continuity cost.
+
+
+
+
+
+
+
+
     frame_rate = int(1.0 / frame_int)
     return dpform(poles, nform, frame_rate)
 
@@ -211,18 +211,18 @@ def _downsample_snack(sig: np.ndarray, samprate: float,
 # downsamples and highpass filters audio
 def preprocess(signal: np.ndarray, samprate: float,
                ds_freq: float = 10000.0) -> tuple[np.ndarray, int]:
-    # Snack reads a LIN16 file and uses the stored integer sample values
-    # directly (Snack_GetSample -> (short)). soundfile hands back floats scaled
-    # by 1/32768, so multiply by 32768 -- not 32767 -- to recover the exact
-    # stored integers. get_formants_snack() reads int16 straight from the file
-    # and skips this branch entirely; it only fires for float input.
+
+
+
+
+
     sig = np.asarray(signal)
     if sig.dtype != np.int16:
         sig = sig.astype(np.float64)
         if np.abs(sig).max() <= 1.0:
             sig = sig * 32768.0
-        # NOTE: VoiceSauce's "process at 16kHz" resample+quantize step happens
-        # once, globally, in api.py before any feature extractor runs (matching
+
+
         # vs_ParameterEstimation.m, which resamples/rewrites the wav before
         # dispatching to any feature). Do not repeat it here.
         sig = sig.clip(-32768, 32767).round().astype(np.int16)
@@ -263,9 +263,9 @@ def get_fcand(freq: np.ndarray, nform: int) -> np.ndarray:
     freq  = np.asarray(freq, dtype=np.float64)
     # how many poles in this frame
     npole = len(freq)
-    # storage for poles 
+    # storage for poles
     pc    = np.full((MAXCAN, nform), -1, dtype=np.int16)
-    # tracks index of highest used row? 
+    # tracks index of highest used row?
     ncan  = 0
 
 # checks if pole pnumb falls within the allowed frequency range
@@ -273,9 +273,9 @@ def get_fcand(freq: np.ndarray, nform: int) -> np.ndarray:
         return fmins[fnumb] <= freq[pnumb] <= fmaxs[fnumb]
 
 # recursively fills rows of pc by assigning poles to formant slots as candidates
-# cand = which row of pc we're in 
-# pnumb = which pole we're considering 
-# fnumb = which formant we're trying to fill 
+# cand = which row of pc we're in
+# pnumb = which pole we're considering
+# fnumb = which formant we're trying to fill
     def candy(cand, pnumb, fnumb):
         nonlocal ncan
         # initialze with non values
@@ -286,7 +286,7 @@ def get_fcand(freq: np.ndarray, nform: int) -> np.ndarray:
             if canbe(pnumb, fnumb):
                 pc[cand, fnumb] = pnumb
 
-                # if a certain pole can possibly be f1 or f2, 
+                # if a certain pole can possibly be f1 or f2,
                 # branch a new candiate row that passes the same pnumb
                 # used later in F_merge penalty
                 if domerge and fnumb == 0 and canbe(pnumb, fnumb + 1):
@@ -630,12 +630,12 @@ def lpcbsa(lpc_ord: int, wind: int, data: np.ndarray, preemp: float, rng):
     # add extra samples to make buffer (stores frames audio samples) larger than window
     total = owind + lpc_ord + 1
 
-    # copy data into buffer, zero-pad if short, add dither noise.
-    # NOTE: Snack reads `wind + np + 1` samples straight out of the full signal
-    # buffer, i.e. the analysis buffer runs lpc_ord+1 samples PAST the nominal
-    # window end. lpc_poles() therefore hands us the longer slice; zero-padding
-    # only kicks in at the very end of the signal (where the C reads past its
-    # own buffer, which we cannot reproduce).
+
+
+
+
+
+
     sig = np.zeros(total, dtype=np.float64)
     n = min(len(data), total)
     sig[:n] = data[:n].astype(np.float64)
@@ -643,7 +643,7 @@ def lpcbsa(lpc_ord: int, wind: int, data: np.ndarray, preemp: float, rng):
 
     # pre-emphasis
     sig[:-1] = sig[1:] - preemp * sig[:-1]
-    sig = sig[:owind + lpc_ord]  
+    sig = sig[:owind + lpc_ord]
 
     # RMS energy normalization over the entire buffer (lpc_ord + owind)
     energy = float(np.sqrt(np.dot(sig[lpc_ord:lpc_ord + owind],
@@ -652,8 +652,8 @@ def lpcbsa(lpc_ord: int, wind: int, data: np.ndarray, preemp: float, rng):
         return np.zeros(lpc_ord + 1), 0.0
     sig /= energy
 
-    # weighted covariance matrix 
-    # covariance LPC 
+    # weighted covariance matrix
+    # covariance LPC
     p   = lpc_ord
     # correlation  between delayed copies of the signal
     phi = np.zeros((p, p))
@@ -666,11 +666,11 @@ def lpcbsa(lpc_ord: int, wind: int, data: np.ndarray, preemp: float, rng):
         # delayed version of y
         si = sig[p - i - 1: p - i - 1 + owind]
         for j in range(i + 1):
-            # delayed y 
+            # delayed y
             sj = sig[p - j - 1: p - j - 1 + owind]
             v = float(np.dot(si * sj, w))
             phi[i, j] = phi[j, i] = v
-        # how correlated is the unshifted signal with the signal shifted by i? 
+        # how correlated is the unshifted signal with the signal shifted by i?
         shi[i] = float(np.dot(y * si, w))
 
     # banded ridge regularization
@@ -726,7 +726,7 @@ def lpc_poles(signal: np.ndarray, samprate: float, frame_int: float,
     data  = signal.astype(np.int16)
     poles = []
     init  = True
-    # fresh, deterministic dither stream per file (see DITHER_SEED)
+
     rng   = np.random.default_rng(DITHER_SEED)
     # persistent root-search state (warm start) shared across frames, matching
     # the static rr/ri arrays in Snack's formant(); reset whenever init is True.
@@ -735,7 +735,7 @@ def lpc_poles(signal: np.ndarray, samprate: float, frame_int: float,
     # frame loop
     for j in range(nfrm):
         start = j * step
-        # Snack's lpcbsa reads size + lpc_ord + 1 samples from the frame start.
+
         frame = data[start:start + size + lpc_ord + 1]
 
         lpca, energy = lpcbsa(lpc_ord, size, frame, preemp, rng)
@@ -891,11 +891,11 @@ def dpform(poles: list[dict], nform: int, samprate: float):
 
     return fr, ba
 
-# entry point wrapper 
+# entry point wrapper
 def get_formants_snack(wavfile, frameshift_ms=1, datalen=None,
                        lpc_ord=12, nform=4, ds_freq=10000.0):
-    # Snack reads the file as LIN16 and works on the stored integer samples,
-    # so read int16 directly rather than round-tripping through floats.
+
+
     y, fs = sf.read(str(wavfile), dtype='int16', always_2d=True)
     y = y[:, 0]
     # convert from seconds to ms

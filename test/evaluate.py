@@ -73,11 +73,6 @@ FEATURE_PAIRS = [
 F0_PAIRS = [
     ("f0_snack", "sF0", "f0_snack"),
     ("f0_praat", "pF0", "f0_praat"),
-    # strF0 is VoiceSauce's TANDEM-STRAIGHT output and is *ungated* (a value at
-    # nearly every frame), whereas get_pitch_straight defaults to legacy
-    # STRAIGHT's voiced-only track. Expect low coverage/high VDE by construction;
-    # judge this pair on pearson_r / gpe / fpe over agreed-voiced frames.
-    ("f0_straight", "strF0", "f0_straight"),
 ]
 
 # When --snack-only is passed, restrict the run to just these (snack formants +

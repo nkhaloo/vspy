@@ -1,6 +1,3 @@
-"""Subharmonic-to-harmonic ratio -- port of VoiceSauce shrp.m (Sun 2002) plus
-the output-alignment wrapper func_GetSHRP.m.
-"""
 
 import numpy as np
 import soundfile as sf
@@ -8,7 +5,7 @@ import pandas as pd
 
 from vspy.features._matlab import mround, mround_int
 
-# VoiceSauce vs_Initialize.m
+
 SHR_MIN = 40.0
 SHR_MAX = 500.0
 SHR_THRESHOLD = 0.4
@@ -20,15 +17,15 @@ FRAME_PRECISION = 1
 def _get_log_spectrum(segment, fftlen, limit_idx, logf, interp_logf):
     spec = np.fft.rfft(segment, n=fftlen)
     amp_full = np.abs(spec)
-    # MATLAB: amplitude(2:limit+1) with limit 1-based == limit_idx + 1
+
     amp = amp_full[1 : limit_idx + 2]
     interp_amp = np.interp(interp_logf, logf, amp)
     interp_amp = interp_amp - interp_amp.min()
     return interp_amp
 
 
-# takes full difference between even and odd rows for 1 frame and returns:
-# the strongest possible peak in the allowed F0 range
+
+
 # a competing peak at double that frequency
 def _twomax(x, lowerbound, upperbound, unitlen):
     region = x[lowerbound : upperbound + 1]
@@ -38,7 +35,7 @@ def _twomax(x, lowerbound, upperbound, unitlen):
     idx1 = int(np.argmax(region)) + lowerbound
     mag1 = x[idx1]
 
-    LIMIT = 0.0625  # 1/8 octave
+    LIMIT = 0.0625
     harmonics = 2
     hi = min(len(x) - 1, upperbound)
     sp = idx1 + mround_int(np.log2(harmonics - LIMIT) / unitlen)
@@ -58,9 +55,9 @@ def _compute_shr(log_spectrum, min_bin, N, shift_units, interp_len,
     shshift = np.zeros((N, interp_len))
     shshift[0, :] = log_spectrum
 
-    # MATLAB places row i (i = 2..N) starting at shift_units+1-round(log2(i)/min_bin)
-    # and then drops the first shift_units columns, which is a left-shift by
-    # round(log2(i)/min_bin) samples.
+
+
+
     for i in range(2, N + 1):
         skip = mround_int(np.log2(i) / min_bin)
         if skip < interp_len:
@@ -72,8 +69,8 @@ def _compute_shr(log_spectrum, min_bin, N, shift_units, interp_len,
 
     mags, indices = _twomax(difference, lowerbound, upperbound, min_bin)
 
-    # SHR is initialised to 0 in ComputeSHR and is returned (and therefore
-    # assigned to cur_SHR) even when no usable peak is found.
+
+
     if mags.size == 0:
         return -1, 0.0
     if mags.size == 1:
@@ -98,7 +95,7 @@ def get_shrp(
     y, fs = sf.read(str(wavfile), always_2d=False)
     if y.ndim > 1:
         y = y[:, 0]
-    # remove DC component, then normalise so max |y| == 1
+
     y = y - np.mean(y)
     peak = np.max(np.abs(y))
     if peak > 0:
@@ -117,43 +114,43 @@ def get_shrp(
     if nf <= 0:
         n = 0 if datalen is None else datalen
         return pd.DataFrame({"f0": np.full(n, np.nan), "shr": np.full(n, np.nan)})
-    # anchor time for each frame: the middle point
+
     f0_time_ms = (np.arange(nf) * frameshift_ms) + windowsize_ms / 2.0
     # FFT length
     fftlen = 1
     while fftlen < segmentlen * (1 + interpolation_depth):
         fftlen *= 2
-    # build FFT-frequency axis in Hz (frequency 0 is ignored: log transform)
+
     frequency = fs * np.arange(1, fftlen // 2 + 1) / fftlen
     limit_idx = int(np.where(frequency >= ceiling)[0][0])
     frequency = frequency[: limit_idx + 1]
     logf = np.log2(frequency)
-    # the minimum distance between two points after interpolation
+
     min_bin = logf[-1] - logf[-2]
     shift_units = mround_int(np.log2(N) / min_bin)
-    # build the log-frequency grid exactly like MATLAB's `logf(1):min_bin:logf(end)`
+
     n_steps = int(np.floor((logf[-1] - logf[0]) / min_bin))
     interp_logf = logf[0] + np.arange(n_steps + 1) * min_bin
     interp_len = len(interp_logf)
-    # candidate F0 search region (SHR searches down to 0.5 * minf0)
+
     maxlogf = np.log2(f0max / 2)
     minlogf = np.log2(f0min / 2)
     upper_hits = np.where(interp_logf >= maxlogf)[0]
     lower_hits = np.where(interp_logf >= minlogf)[0]
     upperbound = int(upper_hits[0]) if len(upper_hits) else interp_len - 1
     lowerbound = int(lower_hits[0]) if len(lower_hits) else 0
-    # the linear Hz scale derived from the interpolated log scale
+
     newfre = 2.0 ** interp_logf
     hamming_win = np.hamming(segmentlen)
-    # position for each frame in terms of index (1-based, as in MATLAB)
+
     curpos = mround(f0_time_ms / 1000 * fs).astype(int)
-    # allocate arrays
+
     f0_raw = np.zeros(nf)
     shr_raw = np.zeros(nf)
     cur_f0 = 0.0
     # main frame loop
     for n in range(nf):
-        # MATLAB toframes(): start = curpos - round(segmentlen/2), 1-based
+
         s = curpos[n] - mround_int(segmentlen / 2.0) - 1
         s = max(0, min(s, total_len - segmentlen))
         segment = y[s : s + segmentlen] * hamming_win
@@ -165,8 +162,8 @@ def get_shrp(
             lowerbound, upperbound, shr_threshold,
         )
 
-        # With CHECK_VOICING off, a -1 peak index leaves the *previous* F0 in
-        # place, but cur_SHR is always overwritten by ComputeSHR's return value.
+
+
         if peak_index != -1:
             cur_f0 = newfre[peak_index] * 2.0
             if cur_f0 > f0max:
@@ -181,10 +178,10 @@ def get_shrp(
     f0_out = np.full(datalen, np.nan)
     shr_out = np.full(datalen, np.nan)
 
-    # --- func_GetSHRP.m output alignment.  Note the deliberate off-by-one:
-    # VoiceSauce writes F0(n+1)/SHR(n+1) where n = round(k/frameshift)+1, so
-    # the value measured at time k ms ends up at MATLAB index k+2 -- which is
-    # t_ms = k+2, i.e. vspy row k+2.
+
+
+
+
     t_rounded = mround(f0_time_ms).astype(int)
     finish = int(t_rounded[-1])
     step = int(frameshift_ms)
@@ -196,8 +193,8 @@ def get_shrp(
         n = mround_int(k_ms / frameshift_ms) + 1
         if n < 1 or n > datalen:
             continue
-        # vspy rows run 0..datalen-1 (t_ms == row), so MATLAB index datalen has
-        # no counterpart and is dropped.
+
+
         if n + 1 < datalen:
             f0_out[n + 1] = f0_raw[inx]
             shr_out[n + 1] = shr_raw[inx]

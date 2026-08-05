@@ -21,10 +21,10 @@ from vspy.features.get_energy import get_energy
 
 TARGET_FS = 16000
 
-# VoiceSauce vs_Initialize.m: vars.O_smoothwinsize = 20.  func_buildMData.m
-# applies `filter(ones(smoothwin,1)/smoothwin, 1, x)` -- a *causal* moving
-# average -- to these measures on the way out to text/display.  F0, formants,
-# bandwidths, Energy, SHR, epoch and SoE are deliberately left unsmoothed.
+
+
+
+
 SMOOTH_WIN = 20
 SMOOTHED_COLUMNS = (
     'H1', 'H2', 'H4', 'A1', 'A2', 'A3', 'H2K', 'H5K',
@@ -42,7 +42,6 @@ def _resample(y, fs, target=TARGET_FS):
 
 
 def _smooth(df, smoothwin=SMOOTH_WIN):
-    """Apply VoiceSauce's output-stage moving-average filter, in place."""
     if not smoothwin:
         return df
     b = [1.0 / smoothwin] * smoothwin
@@ -71,8 +70,8 @@ def vspy(source, features=None, frameshift_ms=1, output_csv="output.csv",
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
             tmp_path = Path(tmp.name)
         sf.write(tmp_path, y_16k, fs_16k, subtype='PCM_16')
-        # VoiceSauce re-reads the resampled file it just wrote, so every
-        # measure sees the 16-bit quantised signal. Match that.
+
+
         y_16k, fs_16k = read_wav(tmp_path)
 
         try:
@@ -129,7 +128,7 @@ def vspy(source, features=None, frameshift_ms=1, output_csv="output.csv",
             df['HNR25'] = HNR25
             df['HNR35'] = HNR35
 
-        # VoiceSauce smooths on output, per file, before any textgrid slicing.
+
         _smooth(df)
 
         df["filename"] = path.name
