@@ -3,7 +3,7 @@ import numpy as np
 
 
 
-def parse_textgrid(tg_path, tier_name):
+def parse_textgrid(tg_path, tier_name, round_times=True):
     raw = open(tg_path, "rb").read()
     enc = "utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8"
     lines = [l.strip() for l in raw.decode(enc).splitlines()]
@@ -26,8 +26,8 @@ def parse_textgrid(tg_path, tier_name):
             current["text"] = label
             if label != "":
                 intervals.append((
-                    round(current["xmin"] * 1000),
-                    round(current["xmax"] * 1000),
+                    round(current["xmin"] * 1000) if round_times else current["xmin"] * 1000,
+                    round(current["xmax"] * 1000) if round_times else current["xmax"] * 1000,
                     label,
                 ))
             current = {}

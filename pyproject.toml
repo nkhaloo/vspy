@@ -5,6 +5,7 @@ requires-python = ">=3.9"
 
 dependencies = [
     "numpy",
+    "scipy",
     "soundfile",
     "praat-parselmouth",
     "librosa",

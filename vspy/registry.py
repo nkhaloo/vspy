@@ -7,6 +7,7 @@ from vspy.features.get_formants_snack import get_formants_snack
 from vspy.features.get_formants_praat import get_formants_praat
 from vspy.features.get_pitch_praat import get_pitch_praat
 from vspy.features.get_pitch_snack import get_pitch_snack
+from vspy.features.get_pitch_straight import get_pitch_straight
 from vspy.features.get_shrp import get_shrp
 
 
@@ -34,6 +35,9 @@ from vspy.features.get_shrp import get_shrp
 
 
 OFFSET_FRAMES = {
+    # VoiceSauce exports MATLAB element 1 at t=1 ms. Downstream vspy
+    # windows use their frame index as time, so retain an empty frame zero.
+    "f0_straight": 1,
     "f0_praat": 0,
     "formants_praat": 0,
     "f0_snack": 13,
@@ -44,6 +48,7 @@ OFFSET_FRAMES = {
 
 
 REGISTRY = {
+    "f0_straight": get_pitch_straight,
     "f0_praat": get_pitch_praat,
     "formants_praat": get_formants_praat,
     "f0_snack": get_pitch_snack,
@@ -68,11 +73,12 @@ def _center_align(result, offset):
 
 
 
-def run(features, wavfile, frameshift_ms, datalen):
+def run(features, wavfile, frameshift_ms, datalen, straight_options=None):
     results = {}
     for name in features:
         extractor = REGISTRY[name]
-        result = extractor(wavfile, frameshift_ms=frameshift_ms, datalen=datalen)
+        options = (straight_options or {}) if name == "f0_straight" else {}
+        result = extractor(wavfile, frameshift_ms=frameshift_ms, datalen=datalen, **options)
 
         results[name] = _center_align(result, OFFSET_FRAMES.get(name, 0))
 

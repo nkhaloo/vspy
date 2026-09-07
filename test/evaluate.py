@@ -31,9 +31,11 @@ FEATURE_PAIRS = [
     ("B1_praat",  "pB1",    "B1_praat"),
     ("B2_praat",  "pB2",    "B2_praat"),
     ("B3_praat",  "pB3",    "B3_praat"),
+    ("B4_praat",  "pB4",    "B4_praat"),
     ("B1_snack",  "sB1",    "B1_snack"),
     ("B2_snack",  "sB2",    "B2_snack"),
     ("B3_snack",  "sB3",    "B3_snack"),
+    ("B4_snack",  "sB4",    "B4_snack"),
     # uncorrected harmonic amplitudes
     ("H1",        "H1u",    "H1"),
     ("H2",        "H2u",    "H2"),
@@ -67,10 +69,13 @@ FEATURE_PAIRS = [
     ("HNR25",     "HNR25",  "HNR25"),
     ("HNR35",     "HNR35",  "HNR35"),
     ("SoE",       "soe",    "SoE"),
+    ("epoch",     "epoch",  "epoch"),
     ("shr",       "SHR",    "SHR"),
 ]
 
 F0_PAIRS = [
+    ("f0_straight", "strF0", "f0_straight"),
+    ("f0", "shrF0", "f0_shr"),
     ("f0_snack", "sF0", "f0_snack"),
     ("f0_praat", "pF0", "f0_praat"),
 ]

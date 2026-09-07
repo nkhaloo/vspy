@@ -1,5 +1,6 @@
 
 import math
+import numpy as np
 import tempfile
 import pandas as pd
 import soundfile as sf
@@ -54,14 +55,26 @@ def _smooth(df, smoothwin=SMOOTH_WIN):
 
 def vspy(source, features=None, frameshift_ms=1, output_csv="output.csv",
          textgrid_dir=None, tier=None,
-         f0_source='praat', formant_source='praat'):
+         f0_source='straight', formant_source='praat',
+         straight_use_textgrid=True, straight_ignore_labels=('', ' ', 'SIL')):
     if features is None:
         features = list(registry.REGISTRY.keys())
+    else:
+        features = list(features)
+    if f"f0_{f0_source}" not in registry.REGISTRY:
+        raise ValueError(f"Unknown F0 source: {f0_source}")
+    # The selected driving F0 must be computed even with a feature subset.
+    if f"f0_{f0_source}" not in features:
+        features.append(f"f0_{f0_source}")
     paths = resolve_paths(source)
 
     all_frames = []
     for path in paths:
         y, fs = read_wav(path)
+        straight_options = {'ignore_labels': straight_ignore_labels}
+        if straight_use_textgrid and textgrid_dir is not None and tier is not None:
+            straight_options['intervals'] = parse_textgrid(
+                Path(textgrid_dir) / (path.stem + '.TextGrid'), tier, round_times=False)
 
         y_16k, fs_16k = _resample(y, fs)
         datalen = int(len(y_16k) / fs_16k * 1000 / frameshift_ms)
@@ -75,11 +88,12 @@ def vspy(source, features=None, frameshift_ms=1, output_csv="output.csv",
         y_16k, fs_16k = read_wav(tmp_path)
 
         try:
-            results = registry.run(features, tmp_path, frameshift_ms, datalen)
+            results = registry.run(features, tmp_path, frameshift_ms, datalen,
+                                   straight_options=straight_options)
         finally:
             tmp_path.unlink(missing_ok=True)
 
-        df = pd.DataFrame({"t_ms": range(datalen)})
+        df = pd.DataFrame({"t_ms": np.arange(datalen) * frameshift_ms})
         for name, result in results.items():
             if isinstance(result, pd.DataFrame):
                 result = result.drop(columns=["t_ms"], errors="ignore")

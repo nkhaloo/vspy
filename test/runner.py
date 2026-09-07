@@ -1,11 +1,9 @@
-from vspy import vspy, Path
+"""Run the restored VoiceSauce corpus and its existing metric evaluator.
 
-source = Path("test/wav")
+Run from the repository root: python -m test.runner
+"""
+from test.run_straight_evaluation import main
 
-# VoiceSauce defaults (vs_Initialize.m): F0algorithm = 'F0 (Straight)',
-# FMTalgorithm = 'Formants (Snack)'.  The reference output was produced with
-# those, so CPP / Energy / HNR / SoE / the harmonics are all driven by strF0.
-df = vspy(source, textgrid_dir=Path("test/textgrid"), tier="words", output_csv="test/output.csv", f0_source='snack', formant_source='snack')
 
-print(df.shape)
-print(df.head(20))
+if __name__ == '__main__':
+    main()
