@@ -1,0 +1,44 @@
+[
+  {
+    "file": "test/textgrid/12-tig-w_Audio.TextGrid",
+    "stage": "read/extract",
+    "error": "Expected one TextGrid in collection, found 0"
+  },
+  {
+    "file": "test/textgrid/F3_be=33_02.TextGrid",
+    "stage": "read/extract",
+    "error": "Collection TextGrid is named 'F2_sa_21_01', not 'F3_be=33_02'; audio pairing is ambiguous"
+  },
+  {
+    "file": "test/textgrid/F3_bi31_01.TextGrid",
+    "stage": "read/extract",
+    "error": "Collection TextGrid is named 'F2_pie_33_02', not 'F3_bi31_01'; audio pairing is ambiguous"
+  },
+  {
+    "file": "test/textgrid/F3_cji31_01.TextGrid",
+    "stage": "read/extract",
+    "error": "Collection TextGrid is named 'F2_tcjhi21_01', not 'F3_cji31_01'; audio pairing is ambiguous"
+  },
+  {
+    "file": "test/textgrid/Mand_M21Apr28_unpr_rise.TextGrid",
+    "tier": 1,
+    "interval": 3,
+    "stage": "annotation",
+    "error": "Nonpositive interval duration"
+  },
+  {
+    "file": "test/textgrid/liuchangqian_m4_19.TextGrid",
+    "stage": "read/extract",
+    "error": "Collection TextGrid is named 'liuchangqian_m4_18', not 'liuchangqian_m4_19'; audio pairing is ambiguous"
+  },
+  {
+    "file": "test/textgrid/liuchangqian_m4_38.TextGrid",
+    "stage": "read/extract",
+    "error": "Collection TextGrid is named 'liuchangqian_m4_37', not 'liuchangqian_m4_38'; audio pairing is ambiguous"
+  },
+  {
+    "file": "test/textgrid/liuyongda_m3_51.TextGrid",
+    "stage": "read/extract",
+    "error": "Collection TextGrid is named 'liuyongda_m3_48', not 'liuyongda_m3_51'; audio pairing is ambiguous"
+  }
+]

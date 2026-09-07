@@ -1,0 +1,13 @@
+{
+  "audio_files": 264,
+  "compared_intervals": 271,
+  "label": "s",
+  "hop_ms": 1,
+  "window_ms": 15,
+  "cutoff_hz": 300,
+  "praat_windows": 6,
+  "praat_script": "spectral moments (unchanged)",
+  "resampling": "original sample rate per file",
+  "parselmouth_version": "0.4.7",
+  "praat_version": "6.1.38"
+}

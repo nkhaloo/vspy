@@ -1,0 +1,7 @@
+{
+  "interval_rows": 7482,
+  "sampled_recordings": 33,
+  "sampled_intervals_checked": 59,
+  "frame_hop_ms": 1,
+  "result": "passed"
+}

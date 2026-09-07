@@ -89,7 +89,8 @@ def vspy(source, features=None, frameshift_ms=1, output_csv="output.csv",
 
         try:
             results = registry.run(features, tmp_path, frameshift_ms, datalen,
-                                   straight_options=straight_options)
+                                   straight_options=straight_options,
+                                   spectral_wavfile=path)
         finally:
             tmp_path.unlink(missing_ok=True)
 

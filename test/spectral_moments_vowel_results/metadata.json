@@ -1,0 +1,23 @@
+{
+  "audio_files": 3716,
+  "compared_intervals": 7482,
+  "selection": "nonempty vowel/vowels tiers, excluding bad and silence labels",
+  "excluded_labels": [
+    "",
+    "[sil]",
+    "bad",
+    "pau",
+    "sil",
+    "silence",
+    "sp"
+  ],
+  "hop_ms": 1,
+  "window_ms": 15,
+  "cutoff_hz": 300,
+  "praat_windows": 6,
+  "praat_script": "spectral moments (unchanged)",
+  "praat_sha256": "2d3ba94e5b542f46cded9370aa46cb1ebd6a23b63ca50ff0f48022cb6b86c205",
+  "resampling": "original sample rate per file",
+  "parselmouth_version": "0.4.7",
+  "praat_version": "6.1.38"
+}
