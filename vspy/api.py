@@ -35,6 +35,17 @@ SMOOTHED_COLUMNS = (
 )
 
 
+def _normalize_tiers(tier):
+    if tier is None:
+        return []
+    if isinstance(tier, str):
+        return [tier]
+    tiers = list(tier)
+    if not tiers or not all(isinstance(name, str) and name for name in tiers):
+        raise ValueError("tier must be a non-empty string or iterable of strings")
+    return list(dict.fromkeys(tiers))
+
+
 def _resample(y, fs, target=TARGET_FS):
     if fs == target:
         return y, fs
@@ -53,10 +64,25 @@ def _smooth(df, smoothwin=SMOOTH_WIN):
 
 
 
-def vspy(source, features=None, frameshift_ms=1, output_csv="output.csv",
+def vspy(source, output_file, features=None, frameshift_ms=1,
          textgrid_dir=None, tier=None,
          f0_source='straight', formant_source='praat',
-         straight_use_textgrid=True, straight_ignore_labels=('', ' ', 'SIL')):
+         nasality_p1search=950.0, nasality_tpnum=5, nasality_scoot=0.0):
+    output_path = Path(output_file).expanduser()
+    if output_path.is_dir():
+        raise IsADirectoryError(
+            f"output_file must include a filename, not just a directory: {output_path}"
+        )
+    if not output_path.parent.is_dir():
+        raise FileNotFoundError(
+            f"Output directory does not exist: {output_path.parent}"
+        )
+    output_format = output_path.suffix.lower()
+    if output_format not in {'.csv', '.parquet'}:
+        raise ValueError("output_file must end in .csv or .parquet")
+    tiers = _normalize_tiers(tier)
+    if (textgrid_dir is None) != (not tiers):
+        raise ValueError("textgrid_dir and tier must be provided together")
     if features is None:
         features = list(registry.REGISTRY.keys())
     else:
@@ -71,10 +97,24 @@ def vspy(source, features=None, frameshift_ms=1, output_csv="output.csv",
     all_frames = []
     for path in paths:
         y, fs = read_wav(path)
-        straight_options = {'ignore_labels': straight_ignore_labels}
-        if straight_use_textgrid and textgrid_dir is not None and tier is not None:
-            straight_options['intervals'] = parse_textgrid(
-                Path(textgrid_dir) / (path.stem + '.TextGrid'), tier, round_times=False)
+        straight_options = {}
+        tier_intervals = {}
+        nasality_options = {
+            'p1search': nasality_p1search,
+            'tpnum': nasality_tpnum,
+            'scoot': nasality_scoot,
+        }
+        if tiers:
+            textgrid_path = Path(textgrid_dir) / (path.stem + '.TextGrid')
+            analysis_intervals = []
+            for tier_name in tiers:
+                tier_intervals[tier_name] = parse_textgrid(
+                    textgrid_path, tier_name)
+                analysis_intervals.extend(parse_textgrid(
+                    textgrid_path, tier_name, round_times=False)
+                )
+            straight_options['intervals'] = analysis_intervals
+            nasality_options['intervals'] = analysis_intervals
 
         y_16k, fs_16k = _resample(y, fs)
         datalen = int(len(y_16k) / fs_16k * 1000 / frameshift_ms)
@@ -90,7 +130,9 @@ def vspy(source, features=None, frameshift_ms=1, output_csv="output.csv",
         try:
             results = registry.run(features, tmp_path, frameshift_ms, datalen,
                                    straight_options=straight_options,
-                                   spectral_wavfile=path)
+                                   spectral_wavfile=path,
+                                   nasality_options=nasality_options,
+                                   nasality_wavfile=path)
         finally:
             tmp_path.unlink(missing_ok=True)
 
@@ -148,13 +190,17 @@ def vspy(source, features=None, frameshift_ms=1, output_csv="output.csv",
 
         df["filename"] = path.name
 
-        if textgrid_dir is not None and tier is not None:
-            tg_path = Path(textgrid_dir) / (path.stem + ".TextGrid")
-            intervals = parse_textgrid(tg_path, tier)
-            df[tier] = label_frames(intervals, datalen)
-            df = df[df[tier].notna()]
+        if tiers:
+            labeled = np.zeros(datalen, dtype=bool)
+            for tier_name in tiers:
+                df[tier_name] = label_frames(tier_intervals[tier_name], datalen)
+                labeled |= df[tier_name].notna().to_numpy()
+            df = df[labeled]
         all_frames.append(df)
 
     combined = pd.concat(all_frames, ignore_index=True)
-    combined.to_csv(output_csv, index=False)
+    if output_format == '.parquet':
+        combined.to_parquet(output_path, index=False)
+    else:
+        combined.to_csv(output_path, index=False)
     return combined

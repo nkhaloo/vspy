@@ -24,12 +24,13 @@ class SpectralMomentsTests(unittest.TestCase):
                     "f0_straight": lambda wavfile, **kw: np.zeros(kw["datalen"]),
                 }):
                     df = vspy(path, frameshift_ms=hop,
-                              output_csv=Path(directory) / "out.csv")
+                              output_file=Path(directory) / "out.csv")
                 self.assertEqual(len(df), int(200 / hop))
                 np.testing.assert_allclose(df.t_ms, np.arange(len(df)) * hop)
                 self.assertTrue(np.isnan(df.spectral_cog.iloc[0]))
                 self.assertTrue(np.isnan(df.spectral_cog.iloc[-1]))
                 valid = df.spectral_cog.dropna()
+                self.assertEqual(valid.index[0], int(np.ceil(12.5 / hop)))
                 np.testing.assert_allclose(valid, 10000, atol=1)
                 self.assertTrue((df.spectral_sdev.dropna() > 0).all())
                 np.testing.assert_allclose(df.spectral_skew.dropna(), 0, atol=0.01)
@@ -53,6 +54,19 @@ class SpectralMomentsTests(unittest.TestCase):
             path = Path(directory) / "silence.wav"
             sf.write(path, np.zeros(1600), 16000)
             self.assertTrue(get_spectral_moments(path).isna().all().all())
+
+    def test_window_expands_to_avoid_gaps_for_large_hop(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "tone.wav"
+            fs = 16000
+            t = np.arange(fs) / fs
+            sf.write(path, np.sin(2 * np.pi * 2000 * t), fs, subtype="FLOAT")
+
+            result = get_spectral_moments(path, frameshift_ms=50)
+
+            # A 50 ms effective window is centered on each 50 ms grid point.
+            # Every interior grid point is therefore covered contiguously.
+            self.assertTrue(result.iloc[1:-1].spectral_cog.notna().all())
 
 
 if __name__ == "__main__":

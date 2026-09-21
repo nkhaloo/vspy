@@ -10,6 +10,7 @@ from vspy.features.get_pitch_snack import get_pitch_snack
 from vspy.features.get_pitch_straight import get_pitch_straight
 from vspy.features.get_shrp import get_shrp
 from vspy.features.get_spectral_moments import get_spectral_moments
+from vspy.features.get_nasality import get_nasality
 
 
 
@@ -56,6 +57,7 @@ REGISTRY = {
     "formants_snack": get_formants_snack,
     "shrp": get_shrp,
     "spectral_moments": get_spectral_moments,
+    "nasality": get_nasality,
 }
 
 
@@ -76,12 +78,22 @@ def _center_align(result, offset):
 
 
 def run(features, wavfile, frameshift_ms, datalen, straight_options=None,
-        spectral_wavfile=None):
+        spectral_wavfile=None, nasality_options=None, nasality_wavfile=None):
     results = {}
     for name in features:
         extractor = REGISTRY[name]
-        options = (straight_options or {}) if name == "f0_straight" else {}
-        source = spectral_wavfile if name == "spectral_moments" and spectral_wavfile is not None else wavfile
+        if name == "f0_straight":
+            options = straight_options or {}
+        elif name == "nasality":
+            options = nasality_options or {}
+        else:
+            options = {}
+        if name == "spectral_moments" and spectral_wavfile is not None:
+            source = spectral_wavfile
+        elif name == "nasality" and nasality_wavfile is not None:
+            source = nasality_wavfile
+        else:
+            source = wavfile
         result = extractor(source, frameshift_ms=frameshift_ms, datalen=datalen, **options)
 
         results[name] = _center_align(result, OFFSET_FRAMES.get(name, 0))

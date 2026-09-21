@@ -23,10 +23,21 @@ def read_wav(wavfile, channel=0):
 
 def resolve_paths(source):
     if isinstance(source, list):
-        return [Path(p) for p in source]
-    source = Path(source)
+        paths = [Path(p).expanduser() for p in source]
+        missing = [path for path in paths if not path.is_file()]
+        if missing:
+            raise FileNotFoundError(f"Input audio file does not exist: {missing[0]}")
+        if not paths:
+            raise ValueError("No input audio files were provided")
+        return paths
+    source = Path(source).expanduser()
     if source.is_dir():
         wavs = sorted(source.glob("*.wav"))
         mp3s = sorted(source.glob("*.mp3"))
-        return wavs + mp3s
+        paths = wavs + mp3s
+        if not paths:
+            raise ValueError(f"Input directory contains no WAV or MP3 files: {source}")
+        return paths
+    if not source.is_file():
+        raise FileNotFoundError(f"Input path does not exist: {source}")
     return [source]

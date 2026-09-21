@@ -7,10 +7,71 @@ import pandas as pd
 import pytest
 import soundfile as sf
 
-from vspy.api import _resample
+from vspy.api import _normalize_tiers, _resample, vspy
 from vspy.features.get_pitch_straight import get_pitch_straight, straight_f0
 from vspy.io import read_wav
 from vspy.align.textgrid import parse_textgrid
+
+
+def test_tier_normalization_supports_multiple_tiers():
+    assert _normalize_tiers("vowel") == ["vowel"]
+    assert _normalize_tiers(["word", "vowel", "word"]) == ["word", "vowel"]
+    with pytest.raises(ValueError):
+        _normalize_tiers([])
+
+
+def test_vspy_combines_multiple_textgrid_tiers(monkeypatch, tmp_path):
+    api = importlib.import_module('vspy.api')
+    wav = tmp_path / 'tiers.wav'
+    sf.write(wav, np.zeros(1600), 16000)
+    intervals = {
+        'word': [(0, 40, 'hello')],
+        'vowel': [(20, 60, 'e')],
+    }
+
+    def parse(_path, tier_name, round_times=True):
+        return intervals[tier_name]
+
+    def run(_features, _wavfile, _frameshift, datalen, **kwargs):
+        assert kwargs['straight_options']['intervals'] == (
+            intervals['word'] + intervals['vowel']
+        )
+        return {'f0_praat': np.full(datalen, 100.0)}
+
+    monkeypatch.setattr(api, 'parse_textgrid', parse)
+    monkeypatch.setattr(api.registry, 'run', run)
+    output_dir = tmp_path / 'results'
+    output_dir.mkdir()
+    output_file = output_dir / 'out.parquet'
+    result = api.vspy(
+        wav,
+        output_file=output_file,
+        features=['f0_praat'],
+        f0_source='praat',
+        textgrid_dir=tmp_path,
+        tier=['word', 'vowel'],
+    )
+
+    assert list(result.columns[-3:]) == ['filename', 'word', 'vowel']
+    assert len(result) == 60
+    assert result.loc[result.t_ms == 10, 'word'].item() == 'hello'
+    assert result.loc[result.t_ms == 10, 'vowel'].isna().all()
+    assert result.loc[result.t_ms == 50, 'vowel'].item() == 'e'
+    assert output_file.exists()
+    saved = pd.read_parquet(output_file)
+    pd.testing.assert_frame_equal(saved, result.reset_index(drop=True))
+
+
+def test_vspy_rejects_missing_input_and_output_directories(tmp_path):
+    with pytest.raises(FileNotFoundError, match='Output directory does not exist'):
+        vspy(
+            tmp_path / 'missing.wav',
+            output_file=tmp_path / 'missing-output' / 'out.csv',
+        )
+    with pytest.raises(FileNotFoundError, match='Input path does not exist'):
+        vspy(tmp_path / 'missing.wav', output_file=tmp_path / 'out.csv')
+    with pytest.raises(ValueError, match=r'must end in \.csv or \.parquet'):
+        vspy(tmp_path / 'missing.wav', output_file=tmp_path / 'out.xlsx')
 
 
 @pytest.mark.parametrize('stem', ['alice_b', 'bean_b', 'john_b', 'satan_t_c',
@@ -84,7 +145,7 @@ def test_straight_drives_every_dependent_feature(monkeypatch, tmp_path):
 
     monkeypatch.setattr(api, 'compute_tilts', tilts)
     monkeypatch.setattr(api, 'get_soe', soe)
-    api.vspy(wav, features=['formants_praat'], output_csv=tmp_path / 'out.csv')
+    api.vspy(wav, features=['formants_praat'], output_file=tmp_path / 'out.csv')
     assert set(calls) == {'get_harmonics', 'get_formant_amplitudes', 'get_2k5k',
                           'get_cpp', 'get_energy', 'get_hnr', 'compute_tilts', 'get_soe'}
 
@@ -101,7 +162,8 @@ def test_segment_placement_and_frameshift(monkeypatch, tmp_path):
 
     monkeypatch.setattr(module, 'straight_f0', calculate)
     f0 = get_pitch_straight(wav, intervals=[(30.5, 60.2, 'word'), (70, 80, 'SIL')])
-    assert seen == [1277]  # MATLAB y(floor(5.5ms*fs):ceil(85.2ms*fs)).
+    # Both intervals are analyzed; STRAIGHT does not treat SIL specially.
+    assert seen == [1277, 881]
     assert np.isnan(f0[:4]).all()
     assert f0[4] == 100
     sparse = get_pitch_straight(wav, frameshift_ms=5)

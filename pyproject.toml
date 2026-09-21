@@ -10,7 +10,8 @@ dependencies = [
     "praat-parselmouth",
     "librosa",
     "pandas",
-    "pydub"
+    "pydub",
+    "pyarrow"
     ]
 
 [tool.setuptools.packages.find]

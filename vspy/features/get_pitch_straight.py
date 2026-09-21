@@ -264,11 +264,12 @@ def straight_f0(x, fs, min_f0=40, max_f0=500):
 
 def get_pitch_straight(wavfile, frameshift_ms=1, datalen=None,
                        min_f0=40, max_f0=500, intervals=None, tbuffer=25,
-                       ignore_labels=('', ' ', 'SIL')):
+                       ignore_labels=()):
     """Registry extractor; intervals are (start_ms, end_ms, label).
 
     With intervals, mirror func_StraightPitch's one-based segment extraction
-    and placement. Labels in VoiceSauce's default ignore list are skipped.
+    and placement. Labels are not skipped unless an ignore list is explicitly
+    supplied to this low-level extractor.
     Without intervals, analyze the entire signal (no arbitrary chunk seams).
     """
     if frameshift_ms < 1 or int(frameshift_ms) != frameshift_ms:

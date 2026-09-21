@@ -11,7 +11,7 @@ from vspy.io import read_wav
 
 
 def get_spectral_moments(wavfile, frameshift_ms=1, datalen=None,
-                         window_ms=15, high_pass_cutoff=300):
+                         window_ms=25, high_pass_cutoff=300):
     """Return COG/SD in Hz and dimensionless skewness/excess kurtosis.
 
     Frames are centered at k * frameshift_ms, rounded to the nearest sample.
@@ -27,7 +27,10 @@ def get_spectral_moments(wavfile, frameshift_ms=1, datalen=None,
         raise ValueError("high_pass_cutoff must be between zero and Nyquist")
     if datalen is None:
         datalen = int(len(y) / fs * 1000 / frameshift_ms)
-    size = int(np.floor(window_ms * fs / 1000 + 0.5))
+    # A large hop expands the window so adjacent frames remain contiguous
+    # rather than leaving unanalyzed gaps between them.
+    effective_window_ms = max(window_ms, frameshift_ms)
+    size = int(np.floor(effective_window_ms * fs / 1000 + 0.5))
     if size < 3:
         raise ValueError("window_ms must span at least three samples")
     frequencies = np.fft.rfftfreq(size, 1 / fs)

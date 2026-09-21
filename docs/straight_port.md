@@ -26,7 +26,7 @@ Compatibility details include:
 - The low-level `get_pitch_straight` array corresponds to MATLAB array elements. Registry alignment places element 1 at `t_ms=1`, matching VoiceSauce's CSV export and vspy's downstream window centers. Frame zero is empty.
 - vspy's existing resample-to-16-kHz and PCM16 write/read preprocessing remains in place.
 
-When `textgrid_dir` and `tier` are supplied, they select the STRAIGHT processing intervals as well as output labels. `straight_use_textgrid=False` requests whole-recording pitch analysis. `straight_ignore_labels` is configurable and defaults to VoiceSauce's empty/space/`SIL` labels. This corpus uses `[SIL]`, so the evaluation explicitly includes that label in the ignore list.
+When `textgrid_dir` and `tier` are supplied, STRAIGHT automatically analyzes all intervals on the selected tier. Those intervals also determine the output labels. The main pipeline does not apply any STRAIGHT-specific label exclusions.
 
 Without TextGrid segmentation, long recordings are analyzed continuously. VoiceSauce's long-recording branch uses the F0 vector in an audio sample-index expression (`floor(F0 / 1000)`); that defective branch is not reproduced. Empty, silent and very short signals return empty or missing F0 safely. Compatibility results below apply to the tested speech corpus, not these degenerate or long-recording cases.
 

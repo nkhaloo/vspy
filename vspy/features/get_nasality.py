@@ -65,7 +65,7 @@ def get_nasality(
     scoot=0.0,
     intervals=None,
     p0_ceiling_hz=350.0,
-    spectrum_window_s=0.030,
+    spectrum_window_s=0.025,
 ):
     """Calculate the selected nasality outputs on the vspy frame grid.
 
@@ -114,12 +114,20 @@ def get_nasality(
         interval_duration_ms = end_ms - start_ms
         for time_s in times:
             frame = int(round(time_s / hop_s))
+            # The main vspy grid contains left-edge frames and therefore does
+            # not include a frame exactly at the recording's end time. Keep
+            # an interval-end measurement on that grid's final frame.
+            if frame == datalen and datalen > 0:
+                frame = datalen - 1
             if 0 <= frame < datalen:
                 measurement_frames[frame] = interval_duration_ms
 
     samples = sound.values[0]
     sample_rate = float(sound.sampling_frequency)
-    window_samples = max(2, int(round(spectrum_window_s * sample_rate)))
+    # Keep adjacent analysis windows overlapping or contiguous even when the
+    # caller chooses a hop larger than the standard 25 ms window.
+    effective_window_s = max(spectrum_window_s, hop_s)
+    window_samples = max(2, int(round(effective_window_s * sample_rate)))
     if window_samples % 2:
         window_samples += 1
     half_window = window_samples // 2

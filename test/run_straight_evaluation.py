@@ -25,8 +25,7 @@ def _process_recording(job):
     if resume and dest.exists():
         return pd.read_csv(dest)
     return vspy([path], textgrid_dir=textgrid_dir, tier='words',
-                output_csv=dest, f0_source='straight', formant_source='snack',
-                straight_ignore_labels=('', ' ', 'SIL', '[SIL]'))
+                output_file=dest, f0_source='straight', formant_source='snack')
 
 
 def main():
