@@ -1,4 +1,10 @@
 # vspy
+VoiceSauce Python (VSPY) is a Python implementation of UCLA's
+[VoiceSauce](https://www.phonetics.ucla.edu/voicesauce/). It also includes
+nasality measurements adapted from Dr. Will Styler's [Nasality AutoMeasurement
+Praat script](https://github.com/stylerw/styler_praat_scripts/blob/master/nasality_automeasure/NasalityAutomeasure.praat)
+and spectral-moment measurements adapted from Dr. Christian DiCanio's [spectral
+moments Praat script](https://www.acsu.buffalo.edu/~cdicanio/scripts/Time_averaging_for_fricatives_4.0.praat).
 
 ## Features
 
