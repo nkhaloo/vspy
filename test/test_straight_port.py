@@ -20,16 +20,18 @@ def test_tier_normalization_supports_multiple_tiers():
         _normalize_tiers([])
 
 
-def test_vspy_combines_multiple_textgrid_tiers(monkeypatch, tmp_path):
+@pytest.mark.parametrize('frameshift_ms', [1, 5, 10, 2.5])
+def test_vspy_combines_multiple_textgrid_tiers(monkeypatch, tmp_path, frameshift_ms):
     api = importlib.import_module('vspy.api')
     wav = tmp_path / 'tiers.wav'
     sf.write(wav, np.zeros(1600), 16000)
     intervals = {
-        'word': [(0, 40, 'hello')],
+        'word': [(0.25, 40, 'hello')],
         'vowel': [(20, 60, 'e')],
     }
 
     def parse(_path, tier_name, round_times=True):
+        assert round_times is False
         return intervals[tier_name]
 
     def run(_features, _wavfile, _frameshift, datalen, **kwargs):
@@ -50,10 +52,13 @@ def test_vspy_combines_multiple_textgrid_tiers(monkeypatch, tmp_path):
         f0_source='praat',
         textgrid_dir=tmp_path,
         tier=['word', 'vowel'],
+        frameshift_ms=frameshift_ms,
     )
 
     assert list(result.columns[-3:]) == ['filename', 'word', 'vowel']
-    assert len(result) == 60
+    expected_times = np.arange(int(100 / frameshift_ms)) * frameshift_ms
+    expected_times = expected_times[(expected_times >= 0.25) & (expected_times < 60)]
+    np.testing.assert_array_equal(result.t_ms, expected_times)
     assert result.loc[result.t_ms == 10, 'word'].item() == 'hello'
     assert result.loc[result.t_ms == 10, 'vowel'].isna().all()
     assert result.loc[result.t_ms == 50, 'vowel'].item() == 'e'

@@ -109,10 +109,8 @@ def vspy(source, output_file, features=None, frameshift_ms=1,
             analysis_intervals = []
             for tier_name in tiers:
                 tier_intervals[tier_name] = parse_textgrid(
-                    textgrid_path, tier_name)
-                analysis_intervals.extend(parse_textgrid(
                     textgrid_path, tier_name, round_times=False)
-                )
+                analysis_intervals.extend(tier_intervals[tier_name])
             straight_options['intervals'] = analysis_intervals
             nasality_options['intervals'] = analysis_intervals
 
@@ -193,7 +191,8 @@ def vspy(source, output_file, features=None, frameshift_ms=1,
         if tiers:
             labeled = np.zeros(datalen, dtype=bool)
             for tier_name in tiers:
-                df[tier_name] = label_frames(tier_intervals[tier_name], datalen)
+                df[tier_name] = label_frames(
+                    tier_intervals[tier_name], datalen, frameshift_ms)
                 labeled |= df[tier_name].notna().to_numpy()
             df = df[labeled]
         all_frames.append(df)

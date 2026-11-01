@@ -86,7 +86,9 @@ df = vspy(
 
 - `features=None`: run every registered extractor. Supply a list of extractor
   names to run a subset.
-- `frameshift_ms=1`: time in milliseconds between analysis frames.
+- `frameshift_ms=1`: time in milliseconds between analysis frames. TextGrid
+  labels follow each frame's `t_ms`: interval starts are included and ends
+  are excluded.
 - `textgrid_dir=None`: directory containing matching `.TextGrid` files.
 - `tier=None`: TextGrid tier used to label and select intervals. Pass one tier
   name or a list such as `["word", "vowel"]`. Each selected tier gets its own

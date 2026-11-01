@@ -39,9 +39,13 @@ def parse_textgrid(tg_path, tier_name, round_times=True):
 
 
 
-def label_frames(intervals, datalen):
+def label_frames(intervals, datalen, frameshift_ms=1):
+    """Label frames at k * frameshift_ms within [start_ms, end_ms)."""
+    if not np.isfinite(frameshift_ms) or frameshift_ms <= 0:
+        raise ValueError("frameshift_ms must be finite and positive")
+    times_ms = np.arange(datalen) * frameshift_ms
     labels = np.full(datalen, None, dtype=object)
     for start_ms, end_ms, label in intervals:
-        for i in range(start_ms, min(end_ms, datalen)):
-            labels[i] = label
+        start, end = np.searchsorted(times_ms, [start_ms, end_ms], side="left")
+        labels[start:end] = label
     return labels
